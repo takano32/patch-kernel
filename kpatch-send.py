@@ -20,6 +20,7 @@
 
 import argparse
 import email
+import email.utils
 import fcntl
 import glob
 import hashlib
@@ -27,6 +28,8 @@ import json
 import os
 import pwd
 import re
+import smtplib
+import ssl
 import subprocess
 import sys
 import time
@@ -200,6 +203,106 @@ class Job:
         return same_subject, same_diff
 
 
+REPLY_DIR = os.path.join(TOOL_DIR, "replies")
+
+
+def load_reply(name):
+    """replies/<name>.txt を読む。先頭の Key: value 行がヘッダ、空行以降が本文。"""
+    path = os.path.join(REPLY_DIR, f"{name}.txt")
+    if not os.path.exists(path):
+        raise Fatal(f"返信が見つかりません: {path}")
+    headers, body = {}, []
+    it = iter(open(path, encoding="utf-8").read().splitlines())
+    for line in it:
+        if not line.strip():
+            break
+        if ":" in line:
+            k, v = line.split(":", 1)
+            headers[k.strip().lower()] = v.strip()
+    body = "\n".join(it)
+    if not body.strip():
+        raise Fatal(f"本文が空です: {path}")
+    return headers, body
+
+
+def git_config(key, default=None):
+    out = subprocess.run(["git", "config", "--get", key], capture_output=True, text=True)
+    return out.stdout.strip() if out.returncode == 0 else default
+
+
+def send_reply(job, name):
+    """replies/<name>.txt を 1 通のメールとして送る（threading 付き）。"""
+    headers, body = load_reply(name)
+    in_reply_to = headers.get("in-reply-to")
+    subject = headers.get("subject")
+    if not in_reply_to or not subject:
+        raise Fatal(f"{name}.txt に In-Reply-To: と Subject: が必要です")
+
+    addr = git_config("user.email", "takano32@gmail.com")
+    name_f = git_config("user.name", "TAKANO Mitsuhiro")
+    msgid = email.utils.make_msgid(domain=addr.split("@")[-1])
+
+    to = [x.strip() for x in headers.get("to", job.list).split(",") if x.strip()]
+    cc = [x.strip() for x in headers.get("cc", "").split(",") if x.strip()]
+    refs = headers.get("references", "")
+    if not refs:
+        refs = f"<{in_reply_to.strip('<>')}>"
+    elif not refs.startswith("<"):
+        refs = f"<{refs.strip('<>')}>"
+
+    lines = [
+        f"From: {name_f} <{addr}>",
+        f"To: {', '.join(to)}",
+    ]
+    if cc:
+        lines.append(f"Cc: {', '.join(cc)}")
+    lines += [
+        f"Subject: {subject}",
+        f"Date: {email.utils.formatdate(localtime=True)}",
+        f"Message-ID: {msgid}",
+        f"In-Reply-To: {in_reply_to}",
+        f"References: {refs}",
+        "MIME-Version: 1.0",
+        'Content-Type: text/plain; charset="utf-8"',
+        "Content-Transfer-Encoding: 8bit",
+        "X-Mailer: kpatch-send.py",
+    ]
+    message = "\n".join(lines) + "\n\n" + body.rstrip() + "\n"
+
+    say(f"       宛先: {', '.join(to)}")
+    if cc:
+        say(f"       Cc: {', '.join(cc)}")
+    say(f"       In-Reply-To: {in_reply_to}")
+    if not job.send:
+        print(message, flush=True)
+        say(f"       dry-run（送っていない）: {name}")
+        return
+
+    server = git_config("sendemail.smtpserver", "smtp.gmail.com")
+    port = int(git_config("sendemail.smtpserverport", "587"))
+    user = git_config("sendemail.smtpuser", addr)
+    enc = git_config("sendemail.smtpencryption", "tls")
+    password = git_config("sendemail.smtppass")
+    if not password:
+        raise Fatal("sendemail.smtppass が git config にありません")
+
+    ctx = ssl.create_default_context()
+    if enc == "ssl":
+        smtp = smtplib.SMTP_SSL(server, port, timeout=60, context=ctx)
+    else:
+        smtp = smtplib.SMTP(server, port, timeout=60)
+        smtp.ehlo()
+        if enc in ("tls", "starttls"):
+            smtp.starttls(context=ctx)
+            smtp.ehlo()
+    smtp.login(user, password)
+    refused = smtp.sendmail(addr, to + cc, message.encode("utf-8"))
+    smtp.quit()
+    say(f"       sent Message-ID: {msgid}")
+    if refused:
+        raise Fatal(f"refused: {refused}")
+
+
 def load_config(path):
     with open(path, encoding="utf-8") as f:
         return json.load(f)
@@ -319,6 +422,7 @@ def main():
                     help="まだ送っていない系列だけを対象にする")
     ap.add_argument("--keep", action="store_true", help="作業ブランチを残す")
     ap.add_argument("--list-series", action="store_true", help="設定の系列を表示")
+    ap.add_argument("--list-replies", action="store_true", help="用意した返信を表示")
     args = ap.parse_args()
 
     lock_file = open("/tmp/kpatch-send.lock", "w")
@@ -335,7 +439,7 @@ def main():
             say(f"{s['name']:20s} {s['branch']:32s} "
                   f"reroll={s.get('reroll', '')} reply={s.get('in_reply_to', '')}")
         return
-    if args.series:
+    if args.series and args.series[0] != "reply":
         series = [s for s in series if s["name"] in args.series]
         if not series:
             sys.exit("該当する系列名がありません（--list-series で確認）")
@@ -347,6 +451,38 @@ def main():
     os.makedirs(logdir, exist_ok=True)
     LOG_PATH = os.path.join(logdir, time.strftime("%Y%m%d-%H%M%S") + ".log")
     LOG = open(LOG_PATH, "a", encoding="utf-8")
+
+    if args.list_replies:
+        names = sorted(f[:-4] for f in os.listdir(REPLY_DIR) if f.endswith(".txt")) \
+            if os.path.isdir(REPLY_DIR) else []
+        for n in names:
+            try:
+                h, _ = load_reply(n)
+                say(f"{n:28s} {h.get('subject', '')[:70]}")
+            except Fatal as exc:
+                say(f"{n:28s} （読めません: {exc}）")
+        say(f"送るには: {sys.argv[0]} reply <名前> --send")
+        return
+
+    # 返信モード: kpatch-send.py reply <名前> [--send]
+    if args.series and args.series[0] == "reply":
+        if len(args.series) < 2:
+            sys.exit("使い方: kpatch-send.py reply <名前> [--send]（--list-replies で一覧）")
+        name = args.series[1]
+        action = "送信" if job.send else "dry-run（送らない）"
+        say(f"=== 返信 {name} の{action} / {time.strftime('%Y-%m-%d %H:%M UTC', time.gmtime())} ===")
+        say(f"    ログ: {LOG_PATH}")
+        try:
+            send_reply(job, name)
+        except Fatal as exc:
+            say(f"\n       NG  {exc}")
+            sys.exit(1)
+        except (smtplib.SMTPException, OSError) as exc:
+            say(f"\n       NG  SMTP: {exc}")
+            sys.exit(1)
+        say(f"\n=== 完了（合計 {clock():.1f}s）===")
+        say(f"ログ: {LOG_PATH}")
+        return
 
     TOTAL = len(series) * 5
     action = "送信" if job.send else "dry-run（送らない）"

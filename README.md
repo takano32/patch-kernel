@@ -76,3 +76,25 @@ lore ミラー上に同じ diff（sha256）が無いかで行い、見つかっ�
 
 - `--send` を実行するのは本人だけ（AI は投稿してはいけない。DCO の証明も本人）
 - 送信後は `Result: 250` を確認し、lore ミラーで Message-ID を控える
+
+## レビューへの返信
+
+返信はパッチではないので `git send-email` では送れません。同じツールに返信モードがあります。
+
+    ./kpatch-send.py --list-replies              # 用意した返信の一覧
+    ./kpatch-send.py reply group-review          # dry-run（ヘッダと本文を表示）
+    ./kpatch-send.py reply group-review --send   # 実際に送る
+
+返信は `replies/<名前>.txt` に置きます。先頭がヘッダ、空行の後が本文です。
+
+    To: linux-perf-users@vger.kernel.org
+    Cc: sashiko-reviews@lists.linux.dev, TAKANO Mitsuhiro <takano32@gmail.com>
+    In-Reply-To: <返信先の Message-ID>
+    References: <元パッチの Message-ID> <返信先の Message-ID>
+    Subject: Re: [PATCH] ...（返信先と同じ件名）
+
+    本文...
+
+送信は `~/.gitconfig` の `sendemail.*`（サーバ・ポート・暗号化・ユーザ・
+パスワード）をそのまま使うので、パスワードは表示も保存もしません。
+`In-Reply-To` / `References` を入れるので、lore でも元のスレッドに繋がります。

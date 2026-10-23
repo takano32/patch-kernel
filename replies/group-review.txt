@@ -1,0 +1,45 @@
+To: linux-perf-users@vger.kernel.org
+Cc: sashiko-reviews@lists.linux.dev, TAKANO Mitsuhiro <takano32@gmail.com>
+In-Reply-To: <sashiko-outbox-182570@kernel.org>
+References: <20261023085629.1694941-1-takano32@gmail.com> <sashiko-outbox-182570@kernel.org>
+Subject: Re: [PATCH] perf evsel: Skip group members without fds when walking a group
+
+Thanks for the review.  The members are not unusable because of the
+descriptor that get_group_fd() forwards; they fail to open for their own
+reason, and the crash is in the enable path that walks them afterwards.
+
+Instrumenting both steps:
+
+  $ perf stat -a -e '{user_time,cycles}' -- sleep 0.05
+  get_group_fd cycles:u   leader=user_time leader_fd=0x...  (the /proc fd)
+  member cycles:u fd=(nil) supported=0
+
+The leader is a userspace PMU event, so it opens without
+perf_event_open().  The member does not open (on this box a system-wide
+run is refused by perf_event_paranoid; on a permissive host it is the
+EINVAL from the group descriptor), and either way it is marked
+unsupported with core.fd released.
+
+Returning -1 from get_group_fd() for a userspace PMU leader does not
+change that outcome:
+
+  with get_group_fd() returning -1 when the leader is a userspace PMU:
+  $ perf stat -a -e '{user_time,cycles}' -- sleep 0.05
+  Segmentation fault
+
+What crashes is the enable path: evlist__enable() ->
+evsel__enable_cpu() walks the members of the group and calls
+perf_evsel__enable_cpu() on the member that never opened.  Skipping the
+members without a descriptor, which is what this patch does in the four
+loops, is what stops it:
+
+  with this patch:
+  $ perf stat -a -e '{user_time,cycles}' -- sleep 0.05
+  rc=0  (cycles:u is printed as <not supported>)
+  $ perf stat -a -e '{user_time,system_time}' -- sleep 0.05
+  rc=0
+
+So get_group_fd() is not the cause here.  Making the group descriptor
+valid for such a leader would still leave the enable and disable paths
+dereferencing a member that failed to open, so those loops have to
+tolerate it regardless.
