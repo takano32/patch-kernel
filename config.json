@@ -14,10 +14,10 @@
   ],
   "series": [
     {
-      "name": "stat-v2",
+      "name": "stat-v3",
       "branch": "perf-stat-tool-enable",
-      "reroll": 2,
-      "in_reply_to": "<20261022024919.263876-1-takano32@gmail.com>"
+      "reroll": 3,
+      "in_reply_to": "<20261023085554.1694434-1-takano32@gmail.com>"
     },
     {
       "name": "group",
