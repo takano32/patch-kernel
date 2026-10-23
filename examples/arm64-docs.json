@@ -1,0 +1,30 @@
+{
+  "repo": "/home/takano32/GitHub/linux",
+  "base": "auto",
+  "list": "linux-arm-kernel@lists.infradead.org",
+  "mirror": "https://lore-kernel.gnuweeb.org/linux-arm-kernel",
+  "to": [
+    "linux-arm-kernel@lists.infradead.org",
+    "Catalin Marinas <catalin.marinas@arm.com>",
+    "Will Deacon <will@kernel.org>"
+  ],
+  "cc": [
+    "linux-doc@vger.kernel.org",
+    "Jonathan Corbet <corbet@lwn.net>",
+    "TAKANO Mitsuhiro <takano32@gmail.com>"
+  ],
+  "series": [
+    {
+      "name": "silicon-errata",
+      "branch": "arm64-silicon-errata-fix"
+    },
+    {
+      "name": "perf-doc-example",
+      "branch": "arm64-perf-doc-example"
+    },
+    {
+      "name": "defconfig",
+      "branch": "arm64-defconfig-stale"
+    }
+  ]
+}

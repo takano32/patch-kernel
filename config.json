@@ -1,0 +1,27 @@
+{
+  "repo": "/home/takano32/GitHub/linux",
+  "base": "auto",
+  "list": "linux-perf-users@vger.kernel.org",
+  "mirror": "https://lore-kernel.gnuweeb.org/linux-perf-users",
+  "to": [
+    "linux-perf-users@vger.kernel.org",
+    "Arnaldo Carvalho de Melo <acme@kernel.org>"
+  ],
+  "cc": [
+    "Namhyung Kim <namhyung@kernel.org>",
+    "Ian Rogers <irogers@google.com>",
+    "TAKANO Mitsuhiro <takano32@gmail.com>"
+  ],
+  "series": [
+    {
+      "name": "stat-v2",
+      "branch": "perf-stat-tool-enable",
+      "reroll": 2,
+      "in_reply_to": "<20261022024919.263876-1-takano32@gmail.com>"
+    },
+    {
+      "name": "group",
+      "branch": "perf-stat-tool-group-enable"
+    }
+  ]
+}
