@@ -17,9 +17,15 @@
 
     ./kpatch-send.py --list-series      # 設定されている系列を表示
     ./kpatch-send.py                    # 全系列を事前チェック + dry-run
-    ./kpatch-send.py stat-v2            # 系列を指定して dry-run
-    ./kpatch-send.py --send             # 本送信（実行は本人）
+    ./kpatch-send.py --pending          # 未送信の系列だけ dry-run
+    ./kpatch-send.py stat-v3            # 系列を指定して dry-run
+    ./kpatch-send.py --send             # 未送信の系列だけを本送信（実行は本人）
+    ./kpatch-send.py --send stat-v3     # 系列を指定して本送信
     ./kpatch-send.py --config examples/arm64-docs.json --send
+
+系列名を指定せずに `--send` すると、**まだ送っていないものだけ**を送る。判定は
+lore ミラー上に同じ diff（sha256）が無いかで行い、見つかった系列は
+「既に送信済み」としてスキップし、最後にどれをスキップしたか表示する。
 
 `--base`（既定 `auto` = `origin/master` との merge-base）、`--to` / `--cc` /
 `--list` / `--mirror` / `--workdir` は設定を一時的に上書きする。
@@ -31,7 +37,8 @@
 2. `format-patch`（`reroll: 2` なら `-v 2`、つまり `[PATCH v2]`）
 3. `checkpatch --strict` が `0 errors, 0 warnings, 0 checks` でなければ中止
 4. クリーンな worktree に `git am` して適用確認（失敗なら中止）
-5. lore ミラーで**同じ diff が既に出ていないか**を sha256 で照合（あれば中止）
+5. lore ミラーで**同じ diff が既に出ていないか**を sha256 で照合
+   （あれば中止。`--pending` と引数なし `--send` では「送信済み」としてスキップ）
 6. `git send-email`（`--send` のときだけ実送信。確認プロンプトは出さない）
 
 ## 設定（config.json）

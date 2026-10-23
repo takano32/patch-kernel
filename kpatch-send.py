@@ -43,6 +43,7 @@ CONFIG_DEFAULT = os.path.join(TOOL_DIR, "config.json")
 T0 = time.time()
 STEP = 0
 TOTAL = 0
+SKIPPED = []
 LOG = None
 LOG_PATH = None
 
@@ -100,6 +101,9 @@ class Job:
         self.base = args.base or cfg.get("base", "auto")
         self.send = args.send
         self.keep = args.keep
+        # 名前を指定せず --send / --pending のときは「未送信のもの」だけ扱う
+        self.pending_only = bool(getattr(args, "pending", False)
+                                 or (args.send and not args.series))
 
     # ---- 基本操作 ----
     def git(self, cmd, check=True, capture=True):
@@ -156,9 +160,17 @@ class Job:
         words = re.sub(r"^(\[[^\]]*\]\s*)+", "", subject).strip()
         phrase = " ".join(words.split()[:6])
         say(f"       検索語: {phrase!r}")
-        html = self.fetch(f"{self.mirror}/?q={urllib.parse.quote(phrase)}")
-        ids = sorted(set(re.findall(
-            r'href="(?:\.\./)?([0-9A-Za-z][^"/]*@[^"/]+)/"', html)))
+        # 件名検索は記号や語の切れ方で自分の投稿を落とすことがあるので、
+        # 著者検索も足して候補を必ず網羅する
+        words_clean = re.sub(r"[^0-9A-Za-z ]+", " ", phrase)
+        ids = set()
+        for q in (" ".join(words_clean.split()[:5]), "f:takano32"):
+            html = self.fetch(f"{self.mirror}/?q={urllib.parse.quote(q)}")
+            found = set(re.findall(
+                r'href="(?:\.\./)?([0-9A-Za-z][^"/]*@[^"/]+)/"', html))
+            say(f"         {q!r}: {len(found)} 件")
+            ids |= found
+        ids = sorted(ids)
         if len(ids) > 60:
             say(f"       候補が {len(ids)} 件あるので新しい60件に絞ります")
             ids = ids[-60:]
@@ -178,7 +190,8 @@ class Job:
                 if line.startswith("Subject:"):
                     r_subject = line.split(":", 1)[1].strip()
                     break
-            bare = re.sub(r"^(\[[^\]]*\]\s*)+", "", r_subject).strip()
+            bare = re.sub(r"\s+", " ",
+                          re.sub(r"^(\[[^\]]*\]\s*)+", "", r_subject)).strip()
             if bare == words:
                 same_subject.append(msgid)
             if local and self.diff_digest(raw) == local:
@@ -252,6 +265,10 @@ def run_series(job, s):
     say(f"       件名: {no_tags}")
     same_subject, same_diff = job.check_duplicate(patches[0], subject, job.cc)
     if same_diff:
+        if job.pending_only:
+            say(f"       既に送信済み <{same_diff}> なのでスキップします")
+            SKIPPED.append(name)
+            return
         raise Fatal(f"同じ diff が既に投稿済み: <{same_diff}>")
     if same_subject:
         say("       同じ件名の既存投稿: "
@@ -298,6 +315,8 @@ def main():
     ap.add_argument("--mirror", help="重複確認に使う lore ミラー")
     ap.add_argument("--workdir", help="パッチの出力先（既定 /tmp/kpatch）")
     ap.add_argument("--send", action="store_true", help="実際に送信する")
+    ap.add_argument("--pending", action="store_true",
+                    help="まだ送っていない系列だけを対象にする")
     ap.add_argument("--keep", action="store_true", help="作業ブランチを残す")
     ap.add_argument("--list-series", action="store_true", help="設定の系列を表示")
     args = ap.parse_args()
@@ -354,6 +373,8 @@ def main():
                        env=job.env, capture_output=True)
 
     say(f"\n=== 完了（合計 {clock():.1f}s）===")
+    if SKIPPED:
+        say(f"送信済みのためスキップ: {', '.join(SKIPPED)}")
     say(f"ログ: {LOG_PATH}")
     if not job.send:
         say(f"問題なければ: {sys.argv[0]} --send " + " ".join(args.series))
