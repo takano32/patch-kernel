@@ -299,6 +299,8 @@ def send_reply(job, name):
     refused = smtp.sendmail(addr, to + cc, message.encode("utf-8"))
     smtp.quit()
     say(f"       sent Message-ID: {msgid}")
+    with open(os.path.join(REPLY_DIR, f"{name}.sent"), "w", encoding="utf-8") as f:
+        f.write(f"{msgid} {time.strftime('%Y-%m-%d %H:%M:%S')}\n")
     if refused:
         raise Fatal(f"refused: {refused}")
 
@@ -421,6 +423,7 @@ def main():
     ap.add_argument("--pending", action="store_true",
                     help="まだ送っていない系列だけを対象にする")
     ap.add_argument("--keep", action="store_true", help="作業ブランチを残す")
+    ap.add_argument("--force", action="store_true", help="送信済みの返信ももう一度出す")
     ap.add_argument("--list-series", action="store_true", help="設定の系列を表示")
     ap.add_argument("--list-replies", action="store_true", help="用意した返信を表示")
     args = ap.parse_args()
@@ -507,6 +510,23 @@ def main():
     finally:
         subprocess.run(["git", "switch", "-q", "master"], cwd=job.repo,
                        env=job.env, capture_output=True)
+
+    # 系列名を指定しない --send では、用意した返信も続けて送る
+    if not args.series and cfg.get("replies"):
+        for name in cfg["replies"]:
+            sent_mark = os.path.join(REPLY_DIR, f"{name}.sent")
+            if os.path.exists(sent_mark) and not args.force:
+                say(f"\n--- 返信 {name}: 送信済み（{open(sent_mark, encoding='utf-8').read().strip()}）なのでスキップ")
+                continue
+            say(f"\n=== 返信 {name} の{'送信' if job.send else 'dry-run（送らない）'} ===")
+            try:
+                send_reply(job, name)
+            except Fatal as exc:
+                say(f"\n       NG  {exc}")
+                sys.exit(1)
+            except (smtplib.SMTPException, OSError) as exc:
+                say(f"\n       NG  SMTP: {exc}")
+                sys.exit(1)
 
     say(f"\n=== 完了（合計 {clock():.1f}s）===")
     if SKIPPED:

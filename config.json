@@ -22,6 +22,15 @@
     {
       "name": "group",
       "branch": "perf-stat-tool-group-enable"
+    },
+    {
+      "name": "ampereonex-deprecated",
+      "branch": "perf-ampereonex-deprecated",
+      "reroll": 2,
+      "in_reply_to": "<20261021224527.167637-1-takano32@gmail.com>"
     }
+  ],
+  "replies": [
+    "ampereonex-ian"
   ]
 }

@@ -1,0 +1,25 @@
+To: Ian Rogers <irogers@google.com>
+Cc: Arnaldo Carvalho de Melo <acme@kernel.org>, Ilkka Koskinen <ilkka@os.amperecomputing.com>, linux-perf-users@vger.kernel.org, Namhyung Kim <namhyung@kernel.org>, TAKANO Mitsuhiro <takano32@gmail.com>
+In-Reply-To: <CAP-5=fX+2eRGCHcU43sqU=gi9iKvxqyS6ipwRSnvFcap3D+QzQ@mail.gmail.com>
+References: <20261021224527.167637-1-takano32@gmail.com> <auEK6E-jX12Bi8u_@phoenix2> <CAP-5=fX+2eRGCHcU43sqU=gi9iKvxqyS6ipwRSnvFcap3D+QzQ@mail.gmail.com>
+Subject: Re: [PATCH] perf vendor events arm64 AmpereOneX: Drop stale BPU_FLUSH_MEM_FAULT entry
+
+Hi Ian,
+
+Agreed, and v2 is in this thread: the entry stays and is marked
+deprecated, with the description worded the way the x86 tables word it,
+so perf list shows the counter once and a script that names
+BPU_FLUSH_MEM_FAULT keeps working.
+
+Ilkka, your Acked-by is on v2 as well, since you said either option was
+fine -- say so and I will drop it rather than have it look like you
+acked a diff you did not read.
+
+On Arnaldo's jevents.py question: a general duplicate-EventCode check is
+not possible for the reasons you gave.  Across the 1463 raw EventCode
+entries under arch/arm64 this is the only duplicated code, so a check
+limited to those tables would flag this and nothing else in the tree
+today.  I can send that separately if it is thought worth having.
+
+Thanks,
+Mitsuhiro

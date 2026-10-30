@@ -98,3 +98,13 @@ lore ミラー上に同じ diff（sha256）が無いかで行い、見つかっ�
 送信は `~/.gitconfig` の `sendemail.*`（サーバ・ポート・暗号化・ユーザ・
 パスワード）をそのまま使うので、パスワードは表示も保存もしません。
 `In-Reply-To` / `References` を入れるので、lore でも元のスレッドに繋がります。
+
+## 未送信の系列と返信をまとめて出す
+
+    ./kpatch-send.py --pending            # dry-run（何が出るか確認）
+    ./kpatch-send.py --send --pending     # 未送信の系列と、用意した返信をまとめて送る
+
+系列名を指定しない `--send --pending` は、まだ投稿していない系列だけを送り、
+そのあと `config.json` の `replies` に並べた返信を続けて送ります。送った返信は
+`replies/<名前>.sent` に Message-ID と時刻を残すので、次からは自動でスキップされ
+ます（`--force` で送り直し）。
