@@ -104,6 +104,10 @@ lore ミラー上に同じ diff（sha256）が無いかで行い、見つかっ�
     ./kpatch-send.py --pending            # dry-run（何が出るか確認）
     ./kpatch-send.py --send --pending     # 未送信の系列と、用意した返信をまとめて送る
 
+宛先は設定から読むので、コマンド行に `--cc` を並べる必要はありません。系列ごとに
+足したい相手がいるときは、`config.json` のその系列に `"cc": [...]`（または
+`"to": [...]`）を書きます。返信の宛先は `replies/<名前>.txt` のヘッダに書きます。
+
 系列名を指定しない `--send --pending` は、まだ投稿していない系列だけを送り、
 そのあと `config.json` の `replies` に並べた返信を続けて送ります。送った返信は
 `replies/<名前>.sent` に Message-ID と時刻を残すので、次からは自動でスキップされ

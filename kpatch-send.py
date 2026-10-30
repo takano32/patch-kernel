@@ -388,9 +388,9 @@ def run_series(job, s):
     t = head(f"{name}: {'送信' if job.send else 'dry-run（送らない）'}"
              + ("" if not job.send else "  ← SMTP で1〜2分かかることがあります"))
     cmd = ["send-email", "--confirm=never"]
-    for a in job.to:
+    for a in job.to + [x for x in s.get("to", []) if x not in job.to]:
         cmd.append(f"--to={a}")
-    for a in job.cc:
+    for a in job.cc + [x for x in s.get("cc", []) if x not in job.cc]:
         cmd.append(f"--cc={a}")
     if not job.send:
         cmd.append("--dry-run")

@@ -27,7 +27,10 @@
       "name": "ampereonex-deprecated",
       "branch": "perf-ampereonex-deprecated",
       "reroll": 2,
-      "in_reply_to": "<20261021224527.167637-1-takano32@gmail.com>"
+      "in_reply_to": "<20261021224527.167637-1-takano32@gmail.com>",
+      "cc": [
+        "Ilkka Koskinen <ilkka@os.amperecomputing.com>"
+      ]
     }
   ],
   "replies": [
