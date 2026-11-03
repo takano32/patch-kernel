@@ -139,15 +139,27 @@ class Job:
     def fetch(self, url):
         last = None
         for _ in range(2):
+            # urllib はこの箱のミラー相手に読み取りで固まることがあるので curl を使う
+            r = subprocess.run(["curl", "-s", "--max-time", "30",
+                                "-A", "Mozilla/5.0", url],
+                               capture_output=True, text=True)
+            if r.returncode == 0 and r.stdout:
+                return r.stdout
+            last = RuntimeError(f"curl rc={r.returncode}: {r.stderr.strip()}")
+            time.sleep(1)
+        raise last
+
+    def fetch_retry(self, url, attempts=3):
+        """ミラー検索用。落ちたら待ってやり直し、それでも駄目なら Fatal。"""
+        last = None
+        for i in range(attempts):
             try:
-                req = urllib.request.Request(
-                    url, headers={"User-Agent": "Mozilla/5.0"})
-                with urllib.request.urlopen(req, timeout=30) as r:
-                    return r.read().decode("utf-8", "replace")
+                return self.fetch(url)
             except Exception as exc:
                 last = exc
-                time.sleep(1)
-        raise last
+                say(f"         検索の再試行 {i + 1}/{attempts}: {exc}")
+                time.sleep(2 * (i + 1))
+        raise Fatal(f"ミラー検索が失敗しました（送信を止めます）: {last}")
 
     @staticmethod
     def diff_digest(text):
@@ -168,15 +180,15 @@ class Job:
         words_clean = re.sub(r"[^0-9A-Za-z ]+", " ", phrase)
         ids = set()
         for q in (" ".join(words_clean.split()[:5]), "f:takano32"):
-            html = self.fetch(f"{self.mirror}/?q={urllib.parse.quote(q)}")
+            html = self.fetch_retry(f"{self.mirror}/?q={urllib.parse.quote(q)}")
             found = set(re.findall(
                 r'href="(?:\.\./)?([0-9A-Za-z][^"/]*@[^"/]+)/"', html))
             say(f"         {q!r}: {len(found)} 件")
             ids |= found
         ids = sorted(ids)
-        if len(ids) > 60:
-            say(f"       候補が {len(ids)} 件あるので新しい60件に絞ります")
-            ids = ids[-60:]
+        if len(ids) > 25:
+            say(f"       候補が {len(ids)} 件あるので新しい25件に絞ります")
+            ids = ids[-25:]
         say(f"       ミラー上の候補: {len(ids)} 件")
 
         same_subject, same_diff = [], None
