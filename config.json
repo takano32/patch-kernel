@@ -10,6 +10,7 @@
   "cc": [
     "Namhyung Kim <namhyung@kernel.org>",
     "Ian Rogers <irogers@google.com>",
+    "John Garry <john.garry@linux.dev>",
     "TAKANO Mitsuhiro <takano32@gmail.com>"
   ],
   "series": [
