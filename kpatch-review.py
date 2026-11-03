@@ -160,7 +160,9 @@ def check_one(report, repo, env, cfg, series, cfg_base):
         report.add(bool(addr) and tags["Signed-off-by"][-1].split("<")[0].strip(),
                    "Signed-off-by に本名とアドレス",
                    tags["Signed-off-by"][-1])
-    report.add("Assisted-by" in tags, "Assisted-by: LLM がある（AI 規約）")
+    # generated-content.rst が求めるのは本文での開示。タグは規約に無く、
+    # checkpatch が ERROR にするので、本文に書いてあることを見る。
+    report.add("LLM" in body or "Assisted-by" in tags, "本文に LLM 利用の開示")
 
     fixes = tags.get("Fixes", [])
     if fixes:

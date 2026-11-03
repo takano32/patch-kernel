@@ -422,7 +422,7 @@ def run_series(job, s):
     job.git(["worktree", "remove", "--force", wt], check=False)
     if am.returncode != 0:
         raise Fatal("git am\n" + (am.stdout + am.stderr)[-600:])
-    ok("checkpatch 0/0/0（Assisted-by の誤検出を除く）、am クリーン", t)
+    ok("checkpatch 0/0/0、am クリーン", t)
 
     t = head(f"{name}: 既に送っていないか（{job.list} を照合）")
     with open(patches[0], encoding="utf-8") as fh:
