@@ -112,3 +112,20 @@ lore ミラー上に同じ diff（sha256）が無いかで行い、見つかっ�
 そのあと `config.json` の `replies` に並べた返信を続けて送ります。送った返信は
 `replies/<名前>.sent` に Message-ID と時刻を残すので、次からは自動でスキップされ
 ます（`--force` で送り直し）。
+
+## 送る前の機械レビュー
+
+    ./kpatch-review.py --repeat 3 ampereonex-deprecated
+
+送信と同じ手順（SoB 付与・変更履歴の差し込み）でパッチを作り直し、25項目を
+機械的に確認します。1つでも落ちれば終了コード 1、`--repeat` は同じ検査を
+N 回繰り返してばらつきを見ます。
+
+見る項目: 件名の版と接頭辞と長さ / Signed-off-by が最後のタグか / 本名と
+アドレス / Assisted-by / Fixes の書式と参照先コミットの実在と件名一致 /
+本文の行長 / `---` が1つか / v2 以降の変更履歴の位置 / 変更ファイル数 /
+JSON の妥当性 / 末尾空白と CRLF / diffstat / base-commit / クリーンな base への
+git am / checkpatch --strict / 宛先の重複・件数・リスト数・自分を Cc /
+v2 以降の in_reply_to。
+
+送る前にこれを緑にしてから `--send` します。

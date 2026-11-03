@@ -33,8 +33,8 @@
         "Ilkka Koskinen <ilkka@os.amperecomputing.com>"
       ],
       "changelog": [
-        "v2: mark the entry deprecated rather than deleting it (Ian Rogers).",
-        "    Ilkka tested both versions and confirmed the Acked-by applies here too."
+        "v2: mark the entry deprecated instead of deleting it (Ian Rogers).",
+        "    Ilkka tested both versions and kept his Acked-by."
       ]
     }
   ],
