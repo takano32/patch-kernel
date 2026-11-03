@@ -13,6 +13,7 @@
     "John Garry <john.garry@linux.dev>",
     "James Clark <james.clark@linaro.org>",
     "linux-kernel@vger.kernel.org",
+    "linux-arm-kernel@lists.infradead.org",
     "TAKANO Mitsuhiro <takano32@gmail.com>"
   ],
   "series": [
@@ -30,14 +31,16 @@
       "name": "ampereonex-deprecated",
       "branch": "perf-ampereonex-deprecated",
       "reroll": 2,
-      "in_reply_to": "<20261021224527.167637-1-takano32@gmail.com>",
+      "in_reply_to": "42801873-8908-07a6-aed1-c7076c689e8e@os.amperecomputing.com",
       "cc": [
         "Ilkka Koskinen <ilkka@os.amperecomputing.com>"
       ],
       "changelog": [
-        "v2: mark the entry deprecated instead of deleting it (Ian Rogers),",
-        "    and word both descriptions the way the x86 tables do.",
-        "    Ilkka tried both versions and kept his Acked-by.",
+        "v2: keep the entry and mark it deprecated instead of deleting it,",
+        "    as Ian Rogers suggested, and word both descriptions the way",
+        "    the x86 tables do.  Ilkka Koskinen Acked-by v1 and asked for it",
+        "    to be carried over to v2; the description wording was added on",
+        "    top of that, as said in this thread.",
         "v1: https://lore.kernel.org/20261021224527.167637-1-takano32@gmail.com"
       ]
     }

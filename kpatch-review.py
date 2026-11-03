@@ -179,6 +179,10 @@ def check_one(report, repo, env, cfg, series, cfg_base):
     # --- 本文
     body_lines = [l for l in body.splitlines() if l.strip()]
     cite = re.compile(r'commit [0-9a-f]{12,} \("')
+    mid = [l for l in body_lines
+           if cite.search(l) and not l.startswith("commit ")]
+    report.add(not mid, "commit の引用は行頭から",
+               (mid[0][:60] + "...") if mid else "")
     long_lines = [l for l in body_lines
                   if len(l) > 74
                   and not l.startswith(("Fixes:", "Link:", "Signed-off", "Assisted-by"))
@@ -262,7 +266,9 @@ def check_one(report, repo, env, cfg, series, cfg_base):
     report.add(len(addrs) == len(set(addrs)), "宛先の重複なし", f"{len(addrs)} 件")
     report.add(len(addrs) <= 10, "宛先が絞られている (<=10)", f"{len(addrs)} 件")
     lists = [a for a in addrs if "vger.kernel.org" in a or "lists." in a]
-    report.add(len(lists) <= 2, "メーリングリストは2つまで", ", ".join(lists))
+    # このファイルは perf と arm64 tooling の両方の MAINTAINERS に載っており、
+    # 既定の linux-kernel を足すと3つになる。それを超えるのは spam。
+    report.add(len(lists) <= 3, "メーリングリストは3つまで", ", ".join(lists))
     report.add(any("takano32@gmail.com" in a for a in addrs), "自分を Cc に残している")
     if not series.get("no_lkml"):
         report.add(any("linux-kernel@vger.kernel.org" in a for a in addrs),
