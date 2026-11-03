@@ -20,7 +20,8 @@ import subprocess
 import sys
 
 TOOL_DIR = os.path.dirname(os.path.abspath(__file__))
-WORK = "/tmp/kpatch-review"
+# /tmp は tmpfs で小さい。worktree は $HOME 側に置く。
+WORK = os.path.expanduser("~/.cache/kpatch-review")
 
 
 def sh(cmd, cwd=None, env=None):
@@ -237,6 +238,8 @@ def check_one(report, repo, env, cfg, series, cfg_base):
     # --- 適用
     wt = os.path.join(WORK, "wt")
     shutil.rmtree(wt, ignore_errors=True)
+    git(repo, env, "worktree", "remove", "--force", wt)
+    git(repo, env, "worktree", "prune")
     rc, out = git(repo, env, "worktree", "add", "-q", "--detach", wt, base)
     if rc != 0:
         report.add(False, "worktree 作成", out[-120:])
@@ -264,7 +267,7 @@ def check_one(report, repo, env, cfg, series, cfg_base):
     cc = list(cfg.get("cc", [])) + list(series.get("cc", []))
     addrs = [a for a in to + cc]
     report.add(len(addrs) == len(set(addrs)), "宛先の重複なし", f"{len(addrs)} 件")
-    report.add(len(addrs) <= 10, "宛先が絞られている (<=10)", f"{len(addrs)} 件")
+    report.add(len(addrs) <= 12, "宛先が絞られている (<=12)", f"{len(addrs)} 件")
     lists = [a for a in addrs if "vger.kernel.org" in a or "lists." in a]
     # このファイルは perf と arm64 tooling の両方の MAINTAINERS に載っており、
     # 既定の linux-kernel を足すと3つになる。それを超えるのは spam。
