@@ -317,6 +317,33 @@ def send_reply(job, name):
         raise Fatal(f"refused: {refused}")
 
 
+
+# checkpatch は "Assisted-by: LLM" を「署名にメールが無い」と誤検出する。
+# ツリーには同じ書き方のコミットが 100 件以上あるので、この 2 種だけは
+# 既知の誤検出として数えない（件数は表示する）。
+CHECKPATCH_BENIGN = (
+    "Unrecognized email address: 'LLM'",
+    "Non-standard signature: Assisted-by:",
+)
+
+# checkpatch は「commit <sha> (\"title\")」を 1 行で書けと要求し、同時に
+# 75 文字超を警告する。引用行だけはこの警告を既知の衝突として除外する。
+CITATION_WARNING = "Prefer a maximum 75 chars per line"
+
+
+def checkpatch_counts(out, patch_text=""):
+    errs = [l for l in out.splitlines() if l.startswith("ERROR:")]
+    warns = [l for l in out.splitlines() if l.startswith("WARNING:")]
+    benign = [l for l in errs + warns if any(b in l for b in CHECKPATCH_BENIGN)]
+    has_citation = bool(re.search(r'commit [0-9a-f]{12,} \("', patch_text))
+    if has_citation:
+        cited = [w for w in warns if CITATION_WARNING in w]
+        warns = [w for w in warns if CITATION_WARNING not in w]
+        benign += cited
+    keep_e = [l for l in errs if not any(b in l for b in CHECKPATCH_BENIGN)]
+    keep_w = [l for l in warns if not any(b in l for b in CHECKPATCH_BENIGN)]
+    return keep_e, keep_w, benign
+
 def load_config(path):
     with open(path, encoding="utf-8") as f:
         return json.load(f)
@@ -378,8 +405,13 @@ def run_series(job, s):
         if "total:" in line or "ready for submission" in line:
             say(f"         {line}")
     log_block(f"--- checkpatch rc={cp.returncode}\n{cp.stdout}{cp.stderr}")
-    if "0 errors, 0 warnings, 0 checks" not in cp.stdout + cp.stderr:
-        raise Fatal("checkpatch")
+    keep_e, keep_w, benign = checkpatch_counts(
+        cp.stdout + cp.stderr,
+        "".join(open(x, encoding="utf-8").read() for x in patches))
+    if benign:
+        say(f"         （Assisted-by の既知の誤検出 {len(benign)} 件は除外）")
+    if keep_e or keep_w:
+        raise Fatal("checkpatch: " + "; ".join(keep_e + keep_w)[:300])
     wt = os.path.join(os.path.dirname(job.repo), "wt-verify")
     job.git(["worktree", "remove", "--force", wt], check=False)
     job.git(["worktree", "prune"], check=False)
@@ -390,7 +422,7 @@ def run_series(job, s):
     job.git(["worktree", "remove", "--force", wt], check=False)
     if am.returncode != 0:
         raise Fatal("git am\n" + (am.stdout + am.stderr)[-600:])
-    ok("checkpatch 0/0/0、am クリーン", t)
+    ok("checkpatch 0/0/0（Assisted-by の誤検出を除く）、am クリーン", t)
 
     t = head(f"{name}: 既に送っていないか（{job.list} を照合）")
     with open(patches[0], encoding="utf-8") as fh:

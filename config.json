@@ -11,6 +11,8 @@
     "Namhyung Kim <namhyung@kernel.org>",
     "Ian Rogers <irogers@google.com>",
     "John Garry <john.garry@linux.dev>",
+    "James Clark <james.clark@linaro.org>",
+    "linux-kernel@vger.kernel.org",
     "TAKANO Mitsuhiro <takano32@gmail.com>"
   ],
   "series": [
@@ -33,8 +35,10 @@
         "Ilkka Koskinen <ilkka@os.amperecomputing.com>"
       ],
       "changelog": [
-        "v2: mark the entry deprecated instead of deleting it (Ian Rogers).",
-        "    Ilkka tested both versions and kept his Acked-by."
+        "v2: mark the entry deprecated instead of deleting it (Ian Rogers),",
+        "    and word both descriptions the way the x86 tables do.",
+        "    Ilkka tried both versions and kept his Acked-by.",
+        "v1: https://lore.kernel.org/20261021224527.167637-1-takano32@gmail.com"
       ]
     }
   ],

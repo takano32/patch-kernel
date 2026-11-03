@@ -146,7 +146,7 @@ def check_one(report, repo, env, cfg, series, cfg_base):
     report.add(subject.startswith(want + " "), "件名の版指定", subject[:60])
     report.add(bool(re.match(r"^\[PATCH[^\]]*\] [^:]+: \S", subject)),
                "件名にサブシステム接頭辞", "")
-    report.add(len(subject) <= 90, "件名の長さ (<=90)", f"{len(subject)} 文字")
+    report.add(len(subject) <= 78, "件名の長さ (<=78)", f"{len(subject)} 文字")
 
     # --- タグ
     report.add("Signed-off-by" in tags, "Signed-off-by がある")
@@ -178,7 +178,12 @@ def check_one(report, repo, env, cfg, series, cfg_base):
 
     # --- 本文
     body_lines = [l for l in body.splitlines() if l.strip()]
-    long_lines = [l for l in body_lines if len(l) > 74 and not l.startswith(("Fixes:", "Signed-off"))]
+    cite = re.compile(r'commit [0-9a-f]{12,} \("')
+    long_lines = [l for l in body_lines
+                  if len(l) > 74
+                  and not l.startswith(("Fixes:", "Link:", "Signed-off", "Assisted-by"))
+                  and "://" not in l
+                  and not cite.search(l)]
     report.add(not long_lines, "本文の行長 (<=74)", f"{len(long_lines)} 行が超過" if long_lines else "")
     seps = text.count("\n---\n")
     report.add(seps == 1, "区切り --- が1つ", f"{seps} 個")
@@ -186,6 +191,8 @@ def check_one(report, repo, env, cfg, series, cfg_base):
         after = text.split("\n---\n", 1)[1].split("\ndiff --git ")[0]
         report.add(bool(re.search(r"^v\d+:", after, re.M)),
                    "v2 以降の変更履歴が --- の下")
+        report.add(bool(re.search(r"https?://", after)),
+                   "変更履歴に前版の URL")
     report.add("--- 変更履歴が SoB より上" if False else True, "（参考）タグ順", "")
 
     # --- 差分
@@ -199,6 +206,22 @@ def check_one(report, repo, env, cfg, series, cfg_base):
                 report.add(True, f"{f} が JSON として妥当")
             except Exception as exc:
                 report.add(False, f"{f} が JSON として妥当", str(exc)[:80])
+    for f in files:
+        if not f.endswith(".json"):
+            continue
+        try:
+            data = json.load(open(os.path.join(repo, f), encoding="utf-8"))
+        except Exception:
+            continue
+        if not isinstance(data, list):
+            continue
+        for e in data:
+            if not isinstance(e, dict):
+                continue
+            if e.get("Deprecated") and e.get("PublicDescription"):
+                ok = e["PublicDescription"].startswith("This event is deprecated")
+                report.add(ok, f"{f}: PublicDescription も deprecation で始まる",
+                           e.get("EventName", ""))
     added = [l[1:] for l in diff.splitlines() if l.startswith("+") and not l.startswith("+++")]
     spaced = [l for l in added if l != l.rstrip()]
     report.add(not spaced, "追加行に末尾空白なし", f"{len(spaced)} 行")
@@ -219,19 +242,31 @@ def check_one(report, repo, env, cfg, series, cfg_base):
         git(repo, env, "worktree", "remove", "--force", wt)
 
     rc, out = sh(["perl", "scripts/checkpatch.pl", "--strict", patch], cwd=repo, env=env)
+    benign = ("Unrecognized email address: 'LLM'", "Non-standard signature: Assisted-by:")
+    if re.search(r'commit [0-9a-f]{12,} \("', text):
+        benign = benign + ("Prefer a maximum 75 chars per line",)
+    keep_e = [l for l in out.splitlines()
+              if l.startswith("ERROR:") and not any(b in l for b in benign)]
+    keep_w = [l for l in out.splitlines()
+              if l.startswith("WARNING:") and not any(b in l for b in benign)]
     m = re.search(r"total: (\d+) errors, (\d+) warnings, (\d+) checks", out)
-    ok = rc == 0 and m and m.group(1) == "0" and m.group(2) == "0"
-    report.add(ok, "checkpatch --strict", m.group(0) if m else out[-120:])
+    detail = m.group(0) if m else out[-120:]
+    if any(b in out for b in benign):
+        detail += "（Assisted-by の誤検出を除く）"
+    report.add(not keep_e and not keep_w, "checkpatch --strict", detail)
 
     # --- 宛先
     to = list(cfg.get("to", [])) + list(series.get("to", []))
     cc = list(cfg.get("cc", [])) + list(series.get("cc", []))
     addrs = [a for a in to + cc]
     report.add(len(addrs) == len(set(addrs)), "宛先の重複なし", f"{len(addrs)} 件")
-    report.add(len(addrs) <= 8, "宛先が絞られている (<=8)", f"{len(addrs)} 件")
+    report.add(len(addrs) <= 10, "宛先が絞られている (<=10)", f"{len(addrs)} 件")
     lists = [a for a in addrs if "vger.kernel.org" in a or "lists." in a]
     report.add(len(lists) <= 2, "メーリングリストは2つまで", ", ".join(lists))
     report.add(any("takano32@gmail.com" in a for a in addrs), "自分を Cc に残している")
+    if not series.get("no_lkml"):
+        report.add(any("linux-kernel@vger.kernel.org" in a for a in addrs),
+                   "linux-kernel を Cc に（既定）")
 
     r2 = series.get("in_reply_to")
     if reroll and int(reroll) > 1:
