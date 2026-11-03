@@ -353,6 +353,24 @@ def run_series(job, s):
         raise Fatal(f"{pdir} が空です")
     ok(f"{len(patches)} 枚: {', '.join(os.path.basename(p) for p in patches)}", t)
 
+    # v2 以降の変更点は "---" の下に置く。git は必ず "---" を足すので、
+    # コミットメッセージではなく生成物に差し込む
+    changelog = s.get("changelog")
+    if changelog:
+        if isinstance(changelog, str):
+            changelog = changelog.strip().splitlines()
+        for p in patches:
+            lines = open(p, encoding="utf-8").read().splitlines(keepends=True)
+            for i, line in enumerate(lines):
+                if line.rstrip() == "---":
+                    block = [c.rstrip() + "\n" for c in changelog] + ["\n"]
+                    lines[i + 1:i + 1] = block
+                    break
+            else:
+                raise Fatal(f"{os.path.basename(p)} に --- が無い")
+            open(p, "w", encoding="utf-8").writelines(lines)
+        say("       ok  変更履歴を --- の下に入れた")
+
     t = head(f"{name}: checkpatch --strict と git am")
     cp = subprocess.run(["perl", "scripts/checkpatch.pl", "--strict"] + patches,
                         cwd=job.repo, env=job.env, capture_output=True, text=True)

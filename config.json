@@ -31,6 +31,10 @@
       "in_reply_to": "<20261021224527.167637-1-takano32@gmail.com>",
       "cc": [
         "Ilkka Koskinen <ilkka@os.amperecomputing.com>"
+      ],
+      "changelog": [
+        "v2: mark the entry deprecated rather than deleting it (Ian Rogers).",
+        "    Ilkka tested both versions and confirmed the Acked-by applies here too."
       ]
     }
   ],
