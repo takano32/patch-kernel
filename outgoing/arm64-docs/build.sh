@@ -78,6 +78,7 @@ git switch -q master
 # --- 3. パッチを生成して差し替える ---------------------------------------
 say
 say "== パッチを生成"
+rm -rf "$OUT"/.stage.* 2>/dev/null || true
 STAGE=$(mktemp -d "$OUT/.stage.XXXXXX")
 trap 'rm -rf "$STAGE"' EXIT
 mkdir -p "$STAGE"/errata "$STAGE"/doc "$STAGE"/defconfig
@@ -94,7 +95,9 @@ text = open(path).read()
 if "*** BLURB HERE ***" not in text or "*** SUBJECT HERE ***" not in text:
     sys.exit("cover letter のプレースホルダが無い（format-patch の出力形式が違う）")
 text = text.replace("*** SUBJECT HERE ***", "arm64: errata: Fix two wrong Kconfig names")
-body = open(out + "/cover.txt").read().rstrip("\n")
+body = open(out + "/cover.txt").read().strip()
+if not body:
+    sys.exit("cover.txt が空")
 text = text.replace("*** BLURB HERE ***\n", body + "\n")
 if "*** BLURB HERE ***" in text:
     sys.exit("cover letter の本文を差し込めなかった")
@@ -106,6 +109,8 @@ PY
 say
 say "== checkpatch"
 fail=0
+want=0
+for n in "${EXPECT[@]}"; do want=$((want + n)); done
 count=0
 for f in "$STAGE"/*/*.patch; do
 	case "$f" in */0000-cover-letter.patch) continue ;; esac
@@ -115,7 +120,10 @@ for f in "$STAGE"/*/*.patch; do
 	out=$(grep -E '^total' "$log" || true)
 	printf '   %-58s %s\n' "$(basename "$f")" "${out:-（出力なし）}"
 	case "$out" in
-	"total: 0 errors"*) ;;
+	"total: 0 errors, 0 warnings"*) ;;
+	"total: 0 errors"*)
+		{ grep -E '^(WARNING|CHECK)' "$log" | head -10 || true; } >&2
+		;;
 	*)
 		fail=1
 		{ grep -E '^(ERROR|WARNING|CHECK)' "$log" | head -20 || true; } >&2
@@ -124,7 +132,7 @@ for f in "$STAGE"/*/*.patch; do
 	esac
 	rm -f "$log"
 done
-[ "$count" = "4" ] || die "パッチが $count 本（期待 4 本）。系列が欠けている"
+[ "$count" = "$want" ] || die "パッチが $count 本（期待 $want 本）。系列が欠けている"
 [ "$fail" = 0 ] || die "checkpatch が 0 errors でない。送信しない"
 grep -q "^base-commit: $BASE$" "$STAGE"/errata/0000-cover-letter.patch ||
 	die "cover letter の base-commit が $BASE でない"

@@ -29,7 +29,7 @@ ADDR = re.compile(r"^[^<>@\s,]+@[^<>@\s,]+$")
 NAMED = re.compile(r"^.+ <[^<>@\s,]+@[^<>@\s,]+>$")
 SOB_RE = re.compile(r"^Signed-off-by:\s+.*<takano32@gmail\.com>\s*$",
                     re.M | re.I)
-COVER_SUBJECT = re.compile(r"^Subject: \[PATCH 0/(\d+)\]", re.M)
+COVER_SUBJECT = re.compile(r"^Subject: \[PATCH[^\]]*\b0/(\d+)\]", re.M)
 MBOX_FROM = re.compile(
     r"^From \S+ (?:Mon|Tue|Wed|Thu|Fri|Sat|Sun) "
     r"(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec) +\d+ [\d:]+ \d{4}",
@@ -157,10 +157,9 @@ def commit_message(text):
 
 
 def is_cover(path, text):
-    """cover は件名 [PATCH 0/N] かファイル名で判定する（本文の形では決めない）。"""
-    if "0000-cover-letter" in os.path.basename(path):
-        return True
-    return bool(COVER_SUBJECT.search(text))
+    """cover は「差分を持たないメール」だけ。件名やファイル名では決めない
+    （--start-number=0 や 0000-*.patch という名前の実パッチを巻き込まないため）。"""
+    return not re.search(r"^diff --git ", text, re.M)
 
 
 def check_series(patches):
