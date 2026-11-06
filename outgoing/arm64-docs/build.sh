@@ -51,8 +51,10 @@ git fetch -q origin master ||
 	die "git fetch に失敗した。古い base で送らないよう、ここで止める（SSH のソケットを確認）"
 BASE=$(git rev-parse origin/master)
 git switch -q master
-[ "$(git rev-parse master)" = "$BASE" ] ||
-	die "ローカル master が origin/master と違う。揃えてからやり直す"
+if [ "$(git rev-parse master)" != "$BASE" ]; then
+	git merge -q --ff-only "$BASE" ||
+		die "ローカル master を origin/master に追従できなかった（分岐している）"
+fi
 say "   $BASE"
 
 # --- 2. 各ブランチを載せ替え、コミットごとに署名する --------------------
