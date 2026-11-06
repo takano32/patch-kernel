@@ -5,13 +5,14 @@
 #
 #   bash build.sh
 #
-# 前提: ~/GitHub/linux に rev-arm64-{silicon-errata-fix,perf-doc-example,defconfig-stale}。
+# 前提: ~/GitHub/linux に rev-arm64-{silicon-errata-fix,perf-doc-example}。
+# defconfig は今サイクル送らないので、生成もゲートも対象外（意図的に外している）。
 set -euo pipefail
 
 REPO="$HOME/GitHub/linux"
 OUT="$HOME/opt/patch-kernel/outgoing/arm64-docs"
-BRANCHES=(arm64-silicon-errata-fix arm64-perf-doc-example arm64-defconfig-stale)
-EXPECT=(2 1 1)
+BRANCHES=(arm64-silicon-errata-fix arm64-perf-doc-example)
+EXPECT=(2 1)
 SOB="Signed-off-by: TAKANO Mitsuhiro <takano32@gmail.com>"
 
 cd "$REPO"
@@ -78,14 +79,14 @@ git switch -q master
 # --- 3. パッチを生成して差し替える ---------------------------------------
 say
 say "== パッチを生成"
+rm -rf "$OUT"/errata "$OUT"/doc   # 失敗しても古い版が「送れる形」で残らないように
 rm -rf "$OUT"/.stage.* 2>/dev/null || true
 STAGE=$(mktemp -d "$OUT/.stage.XXXXXX")
 trap 'rm -rf "$STAGE"' EXIT
-mkdir -p "$STAGE"/errata "$STAGE"/doc "$STAGE"/defconfig
+mkdir -p "$STAGE"/errata "$STAGE"/doc
 
 git format-patch -q --cover-letter --base="$BASE" -o "$STAGE/errata" "$BASE"..rev-arm64-silicon-errata-fix
 git format-patch -q --base="$BASE" -o "$STAGE/doc" "$BASE"..rev-arm64-perf-doc-example
-git format-patch -q --base="$BASE" -o "$STAGE/defconfig" "$BASE"..rev-arm64-defconfig-stale
 
 python3 - "$STAGE" "$OUT" <<'PY'
 import glob, sys
@@ -138,7 +139,7 @@ grep -q "^base-commit: $BASE$" "$STAGE"/errata/0000-cover-letter.patch ||
 	die "cover letter の base-commit が $BASE でない"
 
 # --- 5. 差し替え ---------------------------------------------------------
-for d in errata doc defconfig; do
+for d in errata doc; do
 	rm -rf "$OUT/$d.prev"
 	if [ -d "$OUT/$d" ]; then
 		mv "$OUT/$d" "$OUT/$d.prev"
@@ -150,6 +151,6 @@ trap - EXIT
 
 say
 say "== できあがり（前の版があれば *.prev に残した）"
-ls -1 "$OUT"/errata/*.patch "$OUT"/doc/*.patch "$OUT"/defconfig/*.patch
+ls -1 "$OUT"/errata/*.patch "$OUT"/doc/*.patch
 say
 say "次: ~/opt/patch-kernel/send-series.py arm64-errata   （dry-run）"

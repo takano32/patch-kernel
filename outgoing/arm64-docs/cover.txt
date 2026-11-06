@@ -6,7 +6,7 @@ these are the only two.
 The GIC-700 #2941627 entry names ARM64_ERRATUM_2941627; that workaround
 is a GIC driver quirk, matched at runtime against the GIC's IIDR, so
 there is no symbol to name.  The Falkor E1041 entry names
-QCOM_FALKOR_ERRATUM_1041 and drops the "E" from
+QCOM_FALKOR_ERRATUM_1041; the symbol defined in the tree is
 QCOM_FALKOR_ERRATUM_E1041.
 
 Patch 1 sets the GIC-700 Kconfig column to "N/A", as the table already

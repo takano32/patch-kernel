@@ -28,24 +28,7 @@
       "James Clark <james.clark@linaro.org>",
       "linux-arm-kernel@lists.infradead.org",
       "linux-doc@vger.kernel.org",
-      "linux-kernel@vger.kernel.org",
-      "TAKANO Mitsuhiro <takano32@gmail.com>"
-    ]
-  },
-  "arm64-defconfig": {
-    "patches": "defconfig",
-    "to": [
-      "Arnd Bergmann <arnd@arndb.de>",
-      "Krzysztof Kozlowski <krzk@kernel.org>"
-    ],
-    "cc": [
-      "Alexandre Belloni <alexandre.belloni@bootlin.com>",
-      "Linus Walleij <linusw@kernel.org>",
-      "Drew Fustini <fustini@kernel.org>",
-      "Mikko Rapeli <mikko.rapeli@linaro.org>",
-      "Vincent Mailhol <mailhol@kernel.org>",
-      "soc@lists.linux.dev",
-      "linux-arm-kernel@lists.infradead.org",
+      "linux-perf-users@vger.kernel.org",
       "linux-kernel@vger.kernel.org",
       "TAKANO Mitsuhiro <takano32@gmail.com>"
     ]

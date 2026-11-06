@@ -283,6 +283,7 @@ def main():
             continue
         if r.returncode:
             rc = r.returncode
+            break   # 失敗したら次の系列に進まない（部分送信を防ぐ）
     return rc
 
 
