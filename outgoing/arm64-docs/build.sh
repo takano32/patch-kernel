@@ -15,11 +15,6 @@ BRANCHES=(arm64-silicon-errata-fix arm64-perf-doc-example)
 EXPECT=(2 1)
 SOB="Signed-off-by: TAKANO Mitsuhiro <takano32@gmail.com>"
 
-cd "$REPO"
-
-say() { printf '%s\n' "$*"; }
-die() { printf 'ERROR: %s\n' "$*" >&2; exit 1; }
-
 # 前の版を退避してから消す。途中で die しても「古いのに送れる形」が残らないよう、
 # 検証より先にここで消す（失敗したら send-series が 0 件で止まる）。
 for d in errata doc; do
@@ -28,6 +23,11 @@ for d in errata doc; do
 		mv "$OUT/$d" "$OUT/$d.prev"
 	fi
 done
+
+cd "$REPO"
+
+say() { printf '%s\n' "$*"; }
+die() { printf 'ERROR: %s\n' "$*" >&2; exit 1; }
 
 # --- 0. 中断状態と前提の確認 ---------------------------------------------
 if [ -d .git/rebase-merge ] || [ -d .git/rebase-apply ] ||
@@ -103,7 +103,7 @@ path = glob.glob(stage + "/errata/0000-cover-letter.patch")[0]
 text = open(path).read()
 if "*** BLURB HERE ***" not in text or "*** SUBJECT HERE ***" not in text:
     sys.exit("cover letter のプレースホルダが無い（format-patch の出力形式が違う）")
-text = text.replace("*** SUBJECT HERE ***", "arm64: errata: Fix two wrong Kconfig names")
+text = text.replace("*** SUBJECT HERE ***", "arm64: errata: Fix two Kconfig column entries")
 body = open(out + "/cover.txt").read().strip()
 if not body:
     sys.exit("cover.txt が空")
