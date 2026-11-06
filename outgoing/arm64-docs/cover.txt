@@ -9,9 +9,9 @@ QCOM_FALKOR_ERRATUM_1041; the symbol defined in the tree is
 QCOM_FALKOR_ERRATUM_E1041.
 
 The two rows come from different commits, so they are kept separate and
-each carries its own Fixes: tag.  Both are documentation changes with no
-behaviour change, the column widths are unchanged, and no build was run.
-I did not add a Cc: stable, as this is documentation only.
+each carries its own Fixes: tag.  Both are documentation-only changes:
+the table keeps its column widths and no build was run.  I did not add
+a Cc: stable tag, as nothing outside Documentation changes.
 
 The changes and the changelog text were produced with an AI coding
 assistant (Hermes Agent, model deepseek-v4.1-flash) working from the
