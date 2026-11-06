@@ -129,3 +129,17 @@ git am / checkpatch --strict / 宛先の重複・件数・リスト数・自分�
 v2 以降の in_reply_to。
 
 送る前にこれを緑にしてから `--send` します。
+
+## send-series (宛先を設定ファイルに置く)
+
+シリーズごとの To/Cc を JSON に書き、コマンドは系列名だけにする。
+
+```
+send-series                      # 一覧（系列名・通数・To）
+send-series arm64-errata         # dry-run
+send-series arm64-errata --send  # 本送信
+```
+
+設定はパッチと同じディレクトリの `series.json`。`patches`（サブディレクトリ名）、
+`to`、`cc` を持つ。cover letter 以外に `Signed-off-by` が無いパッチがあれば、
+送信せずに止まる。

@@ -1,0 +1,43 @@
+From 5a33ff8a3daea75b55335e52dde15382f550a0a2 Mon Sep 17 00:00:00 2001
+From: TAKANO Mitsuhiro <takano32@gmail.com>
+Date: Fri, 6 Nov 2026 11:17:49 +0000
+Subject: [PATCH 1/2] arm64: errata: Mark GIC-700 #2941627 N/A in
+ silicon-errata
+
+The GIC-700 #2941627 entry in the arm64 silicon-errata table names
+ARM64_ERRATUM_2941627 in its Kconfig column, but no Kconfig file defines
+that symbol and no code refers to it.  A reader who goes from the table
+to the option finds nothing on the other end, which is the dead end this
+table exists to prevent.
+
+The workaround for this erratum does not need a symbol: irq-gic-v3.c
+hands GICD_IIDR to gic_enable_quirks(), which matches it against its
+quirk table, and gic_enable_quirk_arm64_2941627() enables a static
+branch.  The table already records workarounds of that kind as "N/A",
+for example NVIDIA T241-FABRIC-4, which is also a GIC quirk.
+
+Set the Kconfig column to "N/A" to match those entries.
+
+Only the text of the table changes, and no build was run.
+
+Fixes: 6fe5c68ee6a1 ("irqchip/gic-v3: Workaround for GIC-700 erratum 2941627")
+---
+ Documentation/arch/arm64/silicon-errata.rst | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/Documentation/arch/arm64/silicon-errata.rst b/Documentation/arch/arm64/silicon-errata.rst
+index afe109afe692..afea5e57ab95 100644
+--- a/Documentation/arch/arm64/silicon-errata.rst
++++ b/Documentation/arch/arm64/silicon-errata.rst
+@@ -279,7 +279,7 @@ stable kernels.
+ | ARM            | MMU S3          | #3995052,       | N/A                         |
+ |                |                 | #3673557        |                             |
+ +----------------+-----------------+-----------------+-----------------------------+
+-| ARM            | GIC-700         | #2941627        | ARM64_ERRATUM_2941627       |
++| ARM            | GIC-700         | #2941627        | N/A                         |
+ +----------------+-----------------+-----------------+-----------------------------+
+ | ARM            | SI L1           | #4311569        | ARM64_ERRATUM_4311569       |
+ +----------------+-----------------+-----------------+-----------------------------+
+-- 
+2.53.0
+

@@ -1,0 +1,48 @@
+{
+  "arm64-errata": {
+    "patches": "errata",
+    "to": [
+      "Catalin Marinas <catalin.marinas@arm.com>",
+      "Will Deacon <will@kernel.org>"
+    ],
+    "cc": [
+      "Mark Rutland <mark.rutland@arm.com>",
+      "Jonathan Corbet <corbet@lwn.net>",
+      "linux-arm-kernel@lists.infradead.org",
+      "linux-doc@vger.kernel.org",
+      "linux-kernel@vger.kernel.org",
+      "TAKANO Mitsuhiro <takano32@gmail.com>"
+    ]
+  },
+  "arm64-perf-doc": {
+    "patches": "doc",
+    "to": [
+      "Catalin Marinas <catalin.marinas@arm.com>",
+      "Will Deacon <will@kernel.org>"
+    ],
+    "cc": [
+      "Mark Rutland <mark.rutland@arm.com>",
+      "Jonathan Corbet <corbet@lwn.net>",
+      "Namhyung Kim <namhyung@kernel.org>",
+      "linux-arm-kernel@lists.infradead.org",
+      "linux-doc@vger.kernel.org",
+      "linux-kernel@vger.kernel.org",
+      "TAKANO Mitsuhiro <takano32@gmail.com>"
+    ]
+  },
+  "arm64-defconfig": {
+    "patches": "defconfig",
+    "to": [
+      "Arnd Bergmann <arnd@arndb.de>"
+    ],
+    "cc": [
+      "Krzysztof Kozlowski <krzk@kernel.org>",
+      "Mikko Rapeli <mikko.rapeli@linaro.org>",
+      "Vincent Mailhol <mailhol@kernel.org>",
+      "soc@lists.linux.dev",
+      "linux-arm-kernel@lists.infradead.org",
+      "linux-kernel@vger.kernel.org",
+      "TAKANO Mitsuhiro <takano32@gmail.com>"
+    ]
+  }
+}
