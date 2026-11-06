@@ -144,3 +144,13 @@ PATH には置かない（~/.local/bin 等への配置は本人の許可が要�
 設定はパッチと同じディレクトリの `series.json`。`patches`（サブディレクトリ名）、
 `to`、`cc` を持つ。cover letter 以外に `Signed-off-by` が無いパッチがあれば、
 送信せずに止まる。
+
+実行は毎回 `logs/<YYYYmmdd-HHMMSS>.log` に残る。中身は日時・argv・系列ごとの
+パッチ名と sha256・実際の `git send-email` コマンド・生出力（`Message-ID:` と
+`Result:` を含む）・rc。dry-run も記録する（`--print` と一覧は記録しない）。
+送信後の確認は最新ログから:
+
+```
+grep -E '^(Result|Message-I[Dd]):' "$(ls -t ~/opt/patch-kernel/logs/*.log | head -1)" | tail -8
+```
+

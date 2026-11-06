@@ -5,11 +5,16 @@
     send-series.py arm64-errata         # dry-run（既定）
     send-series.py arm64-errata --send  # 本送信
 
+実行は毎回 logs/<YYYYmmdd-HHMMSS>.log に残る（コマンド・出力・rc・
+Message-ID・送ったパッチの sha256）。
+
 終了コード: 0=成功 / 2=設定の誤り / 3=署名や cover の不整合 / 4=パッチ0件 /
 5=git を起動できない。
 """
 import argparse
+import datetime
 import glob
+import hashlib
 import json
 import os
 import quopri
@@ -18,10 +23,12 @@ import shlex
 import stat
 import subprocess
 import sys
+import threading
 
 DEFAULT_CONFIG = os.path.expanduser(
     "~/opt/patch-kernel/outgoing/arm64-docs/series.json")
 REPO = os.path.expanduser("~/GitHub/linux")
+LOG_DIR = os.path.expanduser("~/opt/patch-kernel/logs")
 
 OK, CFG, SOB, EMPTY, GIT = 0, 2, 3, 4, 5
 
@@ -39,7 +46,69 @@ MBOX_FROM = re.compile(
 def fail(code, *lines):
     for line in lines:
         print(line, file=sys.stderr)
+        logline(line)
+    logline(f"# rc={code}")
     return code
+
+
+LOG = None
+LOG_PATH = None
+
+
+def logline(text):
+    if LOG is None:
+        return
+    LOG.write(str(text).rstrip("\n") + "\n")
+    LOG.flush()
+
+
+def open_log(tag):
+    """logs/<YYYYmmdd-HHMMSS>.log を開く。失敗しても送信は止めない。"""
+    global LOG, LOG_PATH
+    try:
+        os.makedirs(LOG_DIR, exist_ok=True)
+        stamp = datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
+        LOG_PATH = os.path.join(LOG_DIR, f"{stamp}.log")
+        LOG = open(LOG_PATH, "w", encoding="utf-8")
+    except OSError as e:
+        LOG, LOG_PATH = None, None
+        print(f"警告: ログを開けない（記録なしで続行）: {e}", file=sys.stderr)
+        return
+    logline(f"# {datetime.datetime.now().isoformat(timespec='seconds')}")
+    logline(f"# {tag} pid={os.getpid()} argv={shlex.join(sys.argv)}")
+
+
+def run_logged(cmd, cwd, timeout=1800):
+    """git send-email を実行し、出力を画面とログの両方へ流す。
+
+    (returncode, timed_out) を返す。起動できなければ例外を投げる。
+    """
+    logline("$ " + shlex.join(cmd))
+    print("$ " + shlex.join(cmd), flush=True)
+    p = subprocess.Popen(cmd, cwd=cwd, stdout=subprocess.PIPE,
+                         stderr=subprocess.STDOUT, text=True, bufsize=1)
+    timed_out = threading.Event()
+
+    def kill():
+        timed_out.set()
+        p.kill()
+
+    timer = threading.Timer(timeout, kill)
+    timer.daemon = True
+    timer.start()
+    buf = []
+    assert p.stdout is not None
+    try:
+        for line in p.stdout:
+            sys.stdout.write(line)
+            sys.stdout.flush()
+            logline(line)
+            buf.append(line)
+        rc = p.wait()
+    finally:
+        timer.cancel()
+    logline(f"# rc={rc}" + (" (timeout)" if timed_out.is_set() else ""))
+    return rc, timed_out.is_set(), "".join(buf)
 
 
 def load(path):
@@ -113,6 +182,15 @@ def stray_patches(config_path, name, entry):
     chosen = {os.path.basename(p)
               for p in patches_for(config_path, name, entry)}
     return sorted(n for n in names if n.endswith(".patch") and n not in chosen)
+
+
+def sha256(path):
+    """送った差分を後から突き合わせるための指紋。"""
+    try:
+        with open(path, "rb") as f:
+            return hashlib.sha256(f.read()).hexdigest()[:16]
+    except OSError as e:
+        return f"(読めない: {e.strerror})"
 
 
 def read_patch(path):
@@ -212,6 +290,17 @@ def main():
                     help="コマンドを表示するだけ")
     args = ap.parse_args()
 
+    if not args.print_only and args.series:
+        open_log("本送信" if args.send else "dry-run")
+    try:
+        return run(args)
+    finally:
+        if LOG is not None:
+            LOG.close()
+            print(f"log: {LOG_PATH}")
+
+
+def run(args):
     cfg = load(args.config)
 
     if not args.series:
@@ -268,22 +357,29 @@ def main():
             cmd += ["--dry-run"]
         cmd += patches
 
-        print(f"== {name}  ({len(patches)} 通, "
-              f"{'本送信' if args.send else 'dry-run'})", flush=True)
+        label = "本送信" if args.send else "dry-run"
+        print(f"== {name}  ({len(patches)} 通, {label})", flush=True)
+        logline(f"== {name}  ({len(patches)} 通, {label})")
+        for p in patches:
+            logline(f"   {os.path.basename(p)}  sha256={sha256(p)}")
         if args.print_only:
             print(shlex.join(cmd))
             continue
         try:
-            r = subprocess.run(cmd, cwd=args.repo, timeout=1800)
-        except subprocess.TimeoutExpired:
-            rc = fail(GIT, f"{name}: git send-email が 30 分で終わらなかった")
-            continue
+            code, timed_out, out = run_logged(cmd, args.repo)
         except (OSError, FileNotFoundError) as e:
             rc = fail(GIT, f"{name}: git を起動できない: {e}")
             continue
-        if r.returncode:
-            rc = r.returncode
+        if timed_out:
+            rc = fail(GIT, f"{name}: git send-email が 30 分で終わらなかった")
+            continue
+        ids = re.findall(r"^Message-I[Dd]:\s*<([^>]+)>", out, re.M)
+        for mid in dict.fromkeys(ids):
+            logline(f"# {name}: sent <{mid}>")
+        if code:
+            rc = code
             break   # 失敗したら次の系列に進まない（部分送信を防ぐ）
+    logline(f"# 完了 rc={rc}")
     return rc
 
 
