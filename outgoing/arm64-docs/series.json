@@ -9,6 +9,7 @@
       "Mark Rutland <mark.rutland@arm.com>",
       "Jonathan Corbet <corbet@lwn.net>",
       "linux-arm-kernel@lists.infradead.org",
+      "Lorenzo Pieralisi <lpieralisi@kernel.org>",
       "linux-doc@vger.kernel.org",
       "linux-kernel@vger.kernel.org",
       "TAKANO Mitsuhiro <takano32@gmail.com>"
@@ -33,10 +34,10 @@
   "arm64-defconfig": {
     "patches": "defconfig",
     "to": [
-      "Arnd Bergmann <arnd@arndb.de>"
+      "Arnd Bergmann <arnd@arndb.de>",
+      "Krzysztof Kozlowski <krzk@kernel.org>"
     ],
     "cc": [
-      "Krzysztof Kozlowski <krzk@kernel.org>",
       "Mikko Rapeli <mikko.rapeli@linaro.org>",
       "Vincent Mailhol <mailhol@kernel.org>",
       "soc@lists.linux.dev",
