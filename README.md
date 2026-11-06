@@ -132,12 +132,13 @@ v2 以降の in_reply_to。
 
 ## send-series (宛先を設定ファイルに置く)
 
-シリーズごとの To/Cc を JSON に書き、コマンドは系列名だけにする。
+シリーズごとの To/Cc を JSON に書き、コマンド行には系列名だけを書く。
+PATH には置かない（~/.local/bin 等への配置は本人の許可が要る）。
 
 ```
-send-series                      # 一覧（系列名・通数・To）
-send-series arm64-errata         # dry-run
-send-series arm64-errata --send  # 本送信
+~/opt/patch-kernel/send-series.py                      # 一覧
+~/opt/patch-kernel/send-series.py arm64-errata         # dry-run
+~/opt/patch-kernel/send-series.py arm64-errata --send  # 本送信
 ```
 
 設定はパッチと同じディレクトリの `series.json`。`patches`（サブディレクトリ名）、
