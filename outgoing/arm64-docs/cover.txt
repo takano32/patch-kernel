@@ -1,7 +1,6 @@
-Two entries in the arm64 silicon-errata table
-(Documentation/arch/arm64/silicon-errata.rst) name Kconfig symbols that
-no Kconfig file defines.  I checked every Kconfig name in the table:
-these are the only two.
+Documentation/arch/arm64/silicon-errata.rst names two Kconfig symbols
+that no Kconfig file defines.  I checked every Kconfig name in the
+table: these are the only two.
 
 The GIC-700 #2941627 entry names ARM64_ERRATUM_2941627; that workaround
 is a GIC driver quirk, matched at runtime against the GIC's IIDR, so
@@ -9,10 +8,10 @@ there is no symbol to name.  The Falkor E1041 entry names
 QCOM_FALKOR_ERRATUM_1041; the symbol defined in the tree is
 QCOM_FALKOR_ERRATUM_E1041.
 
-Patch 1 sets the GIC-700 Kconfig column to "N/A", as the table already
-does for workarounds that have no Kconfig symbol; patch 2 fixes the
-Falkor spelling.  Both are documentation changes with no behaviour
-change, the column widths are unchanged, and no build was run.
+The two rows come from different commits, so they are kept separate and
+each carries its own Fixes: tag.  Both are documentation changes with no
+behaviour change, the column widths are unchanged, and no build was run.
+I did not add a Cc: stable, as this is documentation only.
 
 The changes and the changelog text were produced with an AI coding
 assistant (Hermes Agent, model deepseek-v4.1-flash) working from the
