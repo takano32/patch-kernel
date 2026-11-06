@@ -5,7 +5,7 @@
     send-series.py arm64-errata         # dry-run（既定）
     send-series.py arm64-errata --send  # 本送信
 
-終了コード: 0=成功 / 2=設定の誤り / 3=Signed-off-by 無し / 4=パッチ0件 /
+終了コード: 0=成功 / 2=設定の誤り / 3=署名や cover の不整合 / 4=パッチ0件 /
 5=git を起動できない。
 """
 import argparse
@@ -15,6 +15,7 @@ import os
 import quopri
 import re
 import shlex
+import stat
 import subprocess
 import sys
 
@@ -23,6 +24,16 @@ DEFAULT_CONFIG = os.path.expanduser(
 REPO = os.path.expanduser("~/GitHub/linux")
 
 OK, CFG, SOB, EMPTY, GIT = 0, 2, 3, 4, 5
+
+ADDR = re.compile(r"^[^<>@\s,]+@[^<>@\s,]+$")
+NAMED = re.compile(r"^.+ <[^<>@\s,]+@[^<>@\s,]+>$")
+SOB_RE = re.compile(r"^Signed-off-by:\s+.*<takano32@gmail\.com>\s*$",
+                    re.M | re.I)
+COVER_SUBJECT = re.compile(r"^Subject: \[PATCH 0/(\d+)\]", re.M)
+MBOX_FROM = re.compile(
+    r"^From \S+ (?:Mon|Tue|Wed|Thu|Fri|Sat|Sun) "
+    r"(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec) +\d+ [\d:]+ \d{4}",
+    re.M)
 
 
 def fail(code, *lines):
@@ -33,19 +44,21 @@ def fail(code, *lines):
 
 def load(path):
     try:
-        with open(path) as f:
+        st = os.stat(path)
+    except OSError as e:
+        sys.exit(fail(CFG, f"設定を開けない: {path}: {e}"))
+    if not stat.S_ISREG(st.st_mode):
+        sys.exit(fail(CFG, f"設定が通常ファイルでない: {path}"))
+    try:
+        with open(path, encoding="utf-8") as f:
             cfg = json.load(f)
-    except FileNotFoundError:
-        sys.exit(fail(CFG, f"設定が無い: {path}"))
     except json.JSONDecodeError as e:
         sys.exit(fail(CFG, f"設定が壊れている: {path}: {e}"))
+    except (OSError, UnicodeDecodeError) as e:
+        sys.exit(fail(CFG, f"設定を読めない: {path}: {e}"))
     if not isinstance(cfg, dict):
         sys.exit(fail(CFG, f"系列名をキーにした辞書であること: {path}"))
     return cfg
-
-
-ADDR = re.compile(r"^[^<>@\s,]+@[^<>@\s,]+\.[^<>@\s,]+$")
-NAMED = re.compile(r"^.+ <[^<>@\s,]+@[^<>@\s,]+\.[^<>@\s,]+>$")
 
 
 def validate_entry(name, entry):
@@ -64,49 +77,118 @@ def validate_entry(name, entry):
                 problems.append(f"{name}: {key} のアドレスとして読めない: {a!r}")
     if not entry.get("to"):
         problems.append(f"{name}: to が空（To 無しで送ると Cc だけに届く）")
+    sub = entry.get("patches")
+    if sub is not None:
+        if not isinstance(sub, str):
+            problems.append(f"{name}: patches は文字列で書く")
+        elif any(c in sub for c in "*?[") or ".." in sub or sub.startswith("/"):
+            problems.append(
+                f"{name}: patches は設定ディレクトリからの単純な名前だけ: {sub!r}")
+    for key in entry:
+        if key not in ("patches", "to", "cc"):
+            problems.append(f"{name}: 知らないキー {key!r}（綴りを確認）")
     return problems
 
 
+def series_dir(config_path, name, entry):
+    base = os.path.dirname(os.path.realpath(config_path))
+    return os.path.join(base, entry.get("patches") or name)
+
+
 def patches_for(config_path, name, entry):
-    base = os.path.dirname(os.path.abspath(config_path))
-    sub = entry.get("patches") or name
-    return sorted(glob.glob(os.path.join(base, sub, "*.patch")))
+    def key(p):
+        return [int(t) if t.isdigit() else t
+                for t in re.split(r"(\d+)", os.path.basename(p))]
+    return sorted(glob.glob(os.path.join(series_dir(config_path, name, entry),
+                                         "*.patch")), key=key)
 
 
-def is_cover(path, text):
-    if "0000-cover-letter" in os.path.basename(path):
-        return True
-    return bool(re.search(r"^Subject: \[PATCH 0/\d+\]", text, re.M))
+def stray_patches(config_path, name, entry):
+    """選ばれなかった .patch（隠しファイルなど）を返す。"""
+    d = series_dir(config_path, name, entry)
+    try:
+        names = os.listdir(d)
+    except OSError:
+        return []
+    chosen = {os.path.basename(p)
+              for p in patches_for(config_path, name, entry)}
+    return sorted(n for n in names if n.endswith(".patch") and n not in chosen)
+
+
+def read_patch(path):
+    """1メールだけの通常ファイルを受け付ける。駄目なら (None, 理由)。"""
+    try:
+        st = os.stat(path)
+    except OSError as e:
+        return None, f"stat できない: {e.strerror}"
+    if not stat.S_ISREG(st.st_mode):
+        return None, "通常ファイルでない"
+    if st.st_size == 0:
+        return None, "空ファイル"
+    try:
+        with open(path, "rb") as f:
+            raw = f.read()
+    except OSError as e:
+        return None, f"読めない: {e.strerror}"
+    if b"\0" in raw:
+        return None, "NUL バイト入り"
+    text = raw.decode("utf-8", "replace").replace("\r\n", "\n")
+    if len(MBOX_FROM.findall(text)) > 1:
+        return None, "1ファイルに複数メール"
+    return text, ""
 
 
 def commit_message(text):
-    """パッチ先頭のコミットメッセージ部分。区切りが見つからなければ None。"""
-    text = text.replace("\r\n", "\n")
-    if re.search(r"^Content-Transfer-Encoding: quoted-printable",
-                 text, re.M | re.I):
-        head, _, body = text.partition("\n\n")
-        text = head + "\n\n" + quopri.decodestring(body).decode("utf-8", "replace")
-    m = re.search(r"^(?:---|diff --git .*)$", text, re.M)
+    """ヘッダを除いたコミットメッセージ。区切りが無ければ None。"""
+    head, sep, rest = text.partition("\n\n")
+    if not sep:
+        return None
+    if re.search(r"^Content-Transfer-Encoding: quoted-printable", head,
+                 re.M | re.I):
+        try:
+            rest = quopri.decodestring(
+                rest.encode("utf-8", "replace")).decode("utf-8", "replace")
+        except Exception:
+            return None
+    m = re.search(r"^(?:---|diff --git .*)$", rest, re.M)
     if not m:
         return None
-    return text[:m.start()]
+    return rest[:m.start()]
 
 
-SOB_RE = re.compile(
-    r"^signed-off-by\s*:\s*.*(takano32@gmail\.com|TAKANO Mitsuhiro)", re.M | re.I)
+def is_cover(path, text):
+    """cover は件名 [PATCH 0/N] かファイル名で判定する（本文の形では決めない）。"""
+    if "0000-cover-letter" in os.path.basename(path):
+        return True
+    return bool(COVER_SUBJECT.search(text))
 
 
-def missing_sob(patches):
-    """SoB が無いパッチを返す。判定できないものも「無い」に倒す（fail closed）。"""
-    missing = []
+def check_series(patches):
+    """署名と cover の整合を検査する。問題の説明を並べて返す。"""
+    problems, covers, bodies, total = [], 0, 0, -1
     for p in patches:
-        text = open(p, encoding="utf-8", errors="replace").read()
-        if is_cover(p, text):
+        name = os.path.basename(p)
+        text, err = read_patch(p)
+        if text is None:
+            problems.append(f"{name}: {err}")
             continue
+        if is_cover(p, text):
+            covers += 1
+            m = COVER_SUBJECT.search(text)
+            if m:
+                total = int(m.group(1))
+            continue
+        bodies += 1
         msg = commit_message(text)
-        if msg is None or not SOB_RE.search(msg):
-            missing.append(os.path.basename(p))
-    return missing
+        if msg is None:
+            problems.append(f"{name}: コミットメッセージの区切りが見つからない")
+        elif not SOB_RE.search(msg):
+            problems.append(f"{name}: Signed-off-by が無い")
+    if covers > 1:
+        problems.append(f"cover letter が {covers} 個ある")
+    if covers == 1 and total >= 0 and total != bodies:
+        problems.append(f"cover letter は {total} 通だが、実パッチは {bodies} 通")
+    return problems
 
 
 def list_series(config_path, cfg):
@@ -141,8 +223,13 @@ def main():
             return fail(CFG, *["設定の誤り:"] + ["  " + p for p in problems])
         return list_series(args.config, cfg)
 
-    rc = OK
+    # 先に全系列を検査する（後ろの設定誤りに気づく前に前を送らないため）
+    plan, rc = [], OK
+    seen = set()
     for name in args.series:
+        if name in seen:
+            continue
+        seen.add(name)
         entry = cfg.get(name)
         if entry is None:
             rc = fail(CFG, f"{name}: 設定にない（{', '.join(cfg)}）")
@@ -153,17 +240,26 @@ def main():
             continue
         patches = patches_for(args.config, name, entry)
         if not patches:
-            rc = fail(EMPTY, f"{name}: パッチが0件: "
-                             f"{os.path.dirname(os.path.abspath(args.config))}/"
-                             f"{entry.get('patches') or name}")
+            rc = fail(EMPTY,
+                      f"{name}: パッチが0件: {series_dir(args.config, name, entry)}")
             continue
-        missing = missing_sob(patches)
-        if missing:
-            rc = fail(SOB, f"{name}: Signed-off-by が無いので送らない:",
-                      *["  " + m for m in missing],
+        stray = stray_patches(args.config, name, entry)
+        if stray:
+            rc = fail(EMPTY, f"{name}: 送らない .patch が混じっている:",
+                      *["  " + s for s in stray])
+            continue
+        problems = check_series(patches)
+        if problems:
+            rc = fail(SOB, f"{name}: 送れない:",
+                      *["  " + m for m in problems],
                       "  build.sh で署名してからやり直すこと")
             continue
+        plan.append((name, entry, patches))
 
+    if rc != OK:
+        return rc
+
+    for name, entry, patches in plan:
         cmd = ["git", "send-email", "--confirm=never", "--suppress-cc=all"]
         for a in entry.get("to", []):
             cmd += ["--to", a]
@@ -179,7 +275,10 @@ def main():
             print(shlex.join(cmd))
             continue
         try:
-            r = subprocess.run(cmd, cwd=args.repo)
+            r = subprocess.run(cmd, cwd=args.repo, timeout=1800)
+        except subprocess.TimeoutExpired:
+            rc = fail(GIT, f"{name}: git send-email が 30 分で終わらなかった")
+            continue
         except (OSError, FileNotFoundError) as e:
             rc = fail(GIT, f"{name}: git を起動できない: {e}")
             continue

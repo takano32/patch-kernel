@@ -25,6 +25,7 @@
       "Mark Rutland <mark.rutland@arm.com>",
       "Jonathan Corbet <corbet@lwn.net>",
       "Namhyung Kim <namhyung@kernel.org>",
+      "James Clark <james.clark@linaro.org>",
       "linux-arm-kernel@lists.infradead.org",
       "linux-doc@vger.kernel.org",
       "linux-kernel@vger.kernel.org",
@@ -38,6 +39,9 @@
       "Krzysztof Kozlowski <krzk@kernel.org>"
     ],
     "cc": [
+      "Alexandre Belloni <alexandre.belloni@bootlin.com>",
+      "Linus Walleij <linusw@kernel.org>",
+      "Drew Fustini <fustini@kernel.org>",
       "Mikko Rapeli <mikko.rapeli@linaro.org>",
       "Vincent Mailhol <mailhol@kernel.org>",
       "soc@lists.linux.dev",
