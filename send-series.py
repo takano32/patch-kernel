@@ -13,8 +13,10 @@ Message-ID・送ったパッチの sha256）。
 """
 import argparse
 import datetime
+import email
 import glob
 import hashlib
+import imaplib
 import json
 import os
 import quopri
@@ -193,6 +195,108 @@ def sha256(path):
         return f"(読めない: {e.strerror})"
 
 
+SEND_HOME = "/home/takano32"
+IMAP_HOST = "imap.gmail.com"
+
+
+def _git_global(key):
+    """Gmail の設定は実 HOME 側にだけある（.home には無い）。"""
+    try:
+        out = subprocess.run(
+            ["git", "config", "--global", "--get", key],
+            capture_output=True, text=True, timeout=10,
+            env={**os.environ, "HOME": SEND_HOME})
+    except (OSError, subprocess.SubprocessError):
+        return ""
+    return out.stdout.strip() if out.returncode == 0 else ""
+
+
+def diff_digest(text):
+    """+- 行だけの指紋。件名が変わっても同じ差分なら一致する。"""
+    body = text.split("\n\n", 1)[1] if "\n\n" in text else text
+    lines = []
+    for line in body.splitlines():
+        if line.startswith(("+++", "---")):
+            continue
+        if line.startswith(("+", "-")):
+            lines.append(line.rstrip())
+    if not lines:
+        return ""
+    return hashlib.sha256("\n".join(lines).encode("utf-8")).hexdigest()
+
+
+def _sent_folder(m):
+    typ, boxes = m.list()
+    for b in boxes or []:
+        line = b.decode("utf-8", "replace") if isinstance(b, bytes) else str(b)
+        if "\\Sent" in line:
+            return line.split(' "/" ')[-1].strip().strip('"')
+    return None
+
+
+def sent_duplicates(patches):
+    """Gmail の Sent を読み、同じ +- 差分が既に出ていれば Message-ID を返す。
+
+    件名ではなく差分で照合するので、件名を直して送り直しても重複を検出する。
+    """
+    local = {}
+    for p in patches:
+        text, _ = read_patch(p)
+        if text is None or is_cover(p, text):
+            continue
+        d = diff_digest(text)
+        if d:
+            local[d] = os.path.basename(p)
+    if not local:
+        return None
+    user = _git_global("sendemail.smtpuser")
+    pw = _git_global("sendemail.smtppass")
+    if not user or not pw:
+        return None
+    try:
+        m = imaplib.IMAP4_SSL(IMAP_HOST, 993, timeout=20)
+        m.login(user, pw)
+    except Exception:
+        return None
+    try:
+        box = _sent_folder(m)
+        if not box:
+            return None
+        typ, _ = m.select(f'"{box}"', readonly=True)
+        if typ != "OK":
+            return None
+        since = (datetime.datetime.now(datetime.timezone.utc)
+                 - datetime.timedelta(days=7)).strftime("%d-%b-%Y")
+        typ, ids = m.search(None, "FROM", f'"{user}"', "SINCE", since)
+        if typ != "OK" or not ids or not ids[0]:
+            return None
+        found = {}
+        for i in ids[0].split():
+            typ, d = m.fetch(i, "(BODY.PEEK[])")
+            if typ != "OK" or not d or not d[0]:
+                continue
+            raw = d[0][1]
+            if isinstance(raw, tuple):
+                raw = raw[0]
+            if not isinstance(raw, bytes):
+                continue
+            msg = email.message_from_bytes(raw)
+            payload = msg.get_payload(decode=True)
+            if not isinstance(payload, bytes):
+                continue
+            dg = diff_digest(payload.decode("utf-8", "replace"))
+            if dg in local:
+                found[dg] = (msg.get("Message-ID") or "").strip()
+        if found and len(found) == len(local):
+            return next(iter(found.values()))
+        return None
+    finally:
+        try:
+            m.logout()
+        except Exception:
+            pass
+
+
 def read_patch(path):
     """1メールだけの通常ファイルを受け付ける。駄目なら (None, 理由)。"""
     try:
@@ -285,6 +389,8 @@ def main():
     ap.add_argument("series", nargs="*", help="系列名（省略時は一覧）")
     ap.add_argument("--config", default=DEFAULT_CONFIG)
     ap.add_argument("--send", action="store_true", help="実際に送る")
+    ap.add_argument("--force-duplicate", action="store_true",
+                    help="Sent に同じ差分があっても送る（v2 以外では使わない）")
     ap.add_argument("--repo", default=REPO)
     ap.add_argument("--print", dest="print_only", action="store_true",
                     help="コマンドを表示するだけ")
@@ -346,6 +452,22 @@ def run(args):
 
     if rc != OK:
         return rc
+
+    # 送る前に、同じ +- 差分が Gmail の Sent に無いかを必ず見る。
+    # 件名ではなく差分で照合するので、件名を直した再送も止まる。
+    if not args.print_only:
+        duplicates = {}
+        for name, entry, patches in plan:
+            mid = sent_duplicates(patches)
+            if mid:
+                duplicates[name] = mid
+                print(f"!! {name}: 同じ差分が既に Sent にあります {mid}",
+                      flush=True)
+                logline(f"!! {name}: duplicate of {mid}")
+        if duplicates and args.send and not args.force_duplicate:
+            return fail(SOB, "既に送った差分があるので送らない:",
+                        *[f"  {n}: {m}" for n, m in duplicates.items()],
+                        "  v2 として送り直す場合だけ --force-duplicate")
 
     for name, entry, patches in plan:
         cmd = ["git", "send-email", "--confirm=never", "--suppress-cc=all"]
