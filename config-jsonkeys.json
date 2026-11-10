@@ -1,0 +1,53 @@
+{
+  "repo": "/home/takano32/GitHub/linux",
+  "base": "auto",
+  "list": "linux-perf-users@vger.kernel.org",
+  "mirror": "https://lore-kernel.gnuweeb.org/linux-perf-users",
+  "to": [
+    "linux-perf-users@vger.kernel.org",
+    "Arnaldo Carvalho de Melo <acme@kernel.org>",
+    "Namhyung Kim <namhyung@kernel.org>"
+  ],
+  "cc": [
+    "Ian Rogers <irogers@google.com>",
+    "linux-kernel@vger.kernel.org",
+    "TAKANO Mitsuhiro <takano32@gmail.com>"
+  ],
+  "series": [
+    {
+      "name": "x86-briefdesc",
+      "branch": "perf-x86-briefdescript6ion",
+      "cc": [
+        "Sandipan Das <sandipan.das@amd.com>",
+        "Ravi Bangoria <ravi.bangoria@amd.com>"
+      ]
+    },
+    {
+      "name": "arm64-more-typos",
+      "branch": "perf-arm64-more-typos",
+      "cc": [
+        "James Clark <james.clark@linaro.org>",
+        "Shunsuke Nakamura <nakamura.shun@fujitsu.com>",
+        "John Garry <john.garry@linux.dev>",
+        "linux-arm-kernel@lists.infradead.org"
+      ]
+    },
+    {
+      "name": "pmujson-series",
+      "branch": "perf-pmujson-series",
+      "cover": "covers/pmujson-series.txt",
+      "cover_subject": "perf pmu-events: Fix the keys jevents.py does not read, and report them",
+      "cc": [
+        "Ian Rogers <irogers@google.com>",
+        "James Clark <james.clark@linaro.org>",
+        "Sandipan Das <sandipan.das@amd.com>",
+        "Ravi Bangoria <ravi.bangoria@amd.com>",
+        "John Garry <john.garry@linux.dev>",
+        "linux-kernel@vger.kernel.org"
+      ]
+    }
+  ],
+  "replies": [
+    "james-schema"
+  ]
+}

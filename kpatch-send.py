@@ -430,6 +430,47 @@ def preflight(job):
     job.orig_branch = br.stdout.strip() or "master"
 
 
+def fill_cover(path, subject, patches):
+    """format-patch --cover-letter の 0000-*.patch に件名と本文を差し込む。"""
+    path = os.path.expanduser(path)
+    if not os.path.isfile(path):
+        raise Fatal(f"cover の本文がありません: {path}")
+    body = open(path, encoding="utf-8").read().rstrip("\n").splitlines()
+    cp = [p for p in patches if os.path.basename(p).startswith("0000-")]
+    if not cp:
+        raise Fatal("cover letter が生成されていません（--cover-letter が効いていない）")
+    cp = cp[0]
+    lines = open(cp, encoding="utf-8").read().splitlines(keepends=True)
+    out, i = [], 0
+    while i < len(lines):
+        line = lines[i]
+        if line.startswith("Subject: "):
+            n = line.split("/", 1)[-1] if "/" in line else "]"
+            out.append(f"Subject: {line[len('Subject: '):].replace('*** SUBJECT HERE ***', subject)}"
+                       if "*** SUBJECT HERE ***" in line else line)
+            i += 1
+            # ヘッダ終わりの空行まで進む
+            while i < len(lines) and lines[i].strip() != "":
+                out.append(lines[i]); i += 1
+            if i < len(lines):
+                out.append(lines[i]); i += 1
+            # ここが本文。*** BLURB HERE *** と既存の署名を本文で置き換える
+            sep = None
+            j = i
+            while j < len(lines):
+                if lines[j].startswith("---"):
+                    sep = j
+                    break
+                j += 1
+            out.append("\n".join(body) + "\n\n")
+            if sep is not None:
+                out.extend(lines[sep:])
+            break
+        out.append(line)
+        i += 1
+    open(cp, "w", encoding="utf-8").write("".join(out))
+
+
 def run_series(job, s):
     name = s["name"]
     branch = s["branch"]
@@ -481,12 +522,17 @@ def run_series(job, s):
 
     t = head(f"{name}: format-patch → {pdir}")
     subprocess.run(["rm", "-rf", pdir], env=job.env)
+    cover = s.get("cover")
     cmd = ["format-patch"] + (["-v", reroll] if reroll else [])
+    if cover:
+        cmd.append("--cover-letter")
     cmd += [f"--base={base}", "-o", pdir, base]
     job.git(cmd)
     patches = sorted(glob.glob(f"{pdir}/*.patch"))
     if not patches:
         raise Fatal(f"{pdir} が空です")
+    if cover:
+        fill_cover(cover, s.get("cover_subject", ""), patches)
     ok(f"{len(patches)} 枚: {', '.join(os.path.basename(p) for p in patches)}", t)
 
     # v2 以降の変更点は "---" の下に置く。git は必ず "---" を足すので、
@@ -525,7 +571,9 @@ def run_series(job, s):
     job.git(["worktree", "remove", "--force", wt], check=False)
     job.git(["worktree", "prune"], check=False)
     job.git(["worktree", "add", "-q", "--detach", wt, base])
-    am = subprocess.run(["git", "-C", wt, "am"] + patches, env=job.env,
+    # cover letter には diff が無いので git am には渡さない
+    am_files = [p for p in patches if not os.path.basename(p).startswith("0000-")]
+    am = subprocess.run(["git", "-C", wt, "am"] + am_files, env=job.env,
                         capture_output=True, text=True)
     log_block(f"--- git am rc={am.returncode}\n{am.stdout}{am.stderr}")
     job.git(["worktree", "remove", "--force", wt], check=False)
