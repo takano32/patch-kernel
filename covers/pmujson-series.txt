@@ -1,32 +1,80 @@
-The PMU event tables spell a field jevents.py reads by name two ways
-wrongly: "BriefDescript6ion" in three AMD tables, and
-"PublicDescrition" in the AmpereOneX mmu table.  jevents.py takes the
-fields it wants out of each object and ignores the rest, so both were
-dropped without a word, and the events went out with no description at
-all.  perf list has shown them that way since v6.2 and v6.8.
+Two fields that jevents.py reads by name are misspelled in the tables.
 
-Patches 1 and 2 are the data fixes.  They were posted on their own in
-November and are unchanged here; they are 1/3 and 2/3 so that the tree
-is right by the time 3/3 looks at it.
+"BriefDescript6ion" is in one entry each of amdzen4/cache.json,
+amdzen5/load-store.json and amdzen6/load-store.json.  Nothing reads that
+name, so ls_inef_sw_pref.all is built with an empty description, and
+perf list shows it that way since each table was added: Zen 4 in v6.2,
+Zen 5 in v6.10, Zen 6 in v7.0.
 
-  https://lore.kernel.org/linux-perf-users/20261108184600.3810059-1-takano32@gmail.com/
-  https://lore.kernel.org/linux-perf-users/20261108183846.3804875-1-takano32@gmail.com/
+"PublicDescrition" is in 16 of the 28 entries of
+arm64/ampere/ampereonex/mmu.json.  Nothing a user sees changes there:
+each of the 16 also has a BriefDescription with the same text, and
+jevents.py drops the long description when the two are equal, so perf
+list never showed the difference.  That one is a cleanup.
 
-Patch 3 is new.  It notes which keys jevents.py looked at while
-building an event and warns about any key in the object that nothing
-looked at, naming the file, the key, and the number of objects with
-it.  It warns rather than fails: a key nobody knows about in one
-vendor's tables should not stop a build for an architecture that does
-not use them.  JEVENTS_STRICT=1 asks for the error instead.
+Neither was ever reported, because jevents.py takes the fields it wants
+out of each object by name and ignores the rest: a key spelled
+differently is dropped without a word, and the object is built without
+whatever that field held.
 
-The generated tables are byte for byte unchanged on every
-architecture, and the check costs about 0.2 seconds of the 5 the x86
-tables take here.
+James Clark asked on the arm64 posting whether jevents.py should not
+enforce some kind of schema, since all the tables live in one tree and
+the data can be fixed while strict validation goes in.  This series
+does that.
 
-Checked by running jevents.py over every architecture with and without
-1 and 2; by building perf on arm64, once with the tables as they were
-before 1 and 2 (the build succeeds and prints one warning per file) and
-once with the whole series (silent); and by running mypy 1.19.1 on
-jevents.py.
+Patch 3 is the new part.  JsonEvent wraps the object json.load hands it
+in a dict subclass that records every key it is asked for; once the
+tables are read, any key nobody asked for is reported, with the files
+and the number of objects carrying it.  There is no list of field names
+to keep in step with the code: the set of read keys is whatever the
+code below reads.
 
-Written with Hermes Agent, an LLM assistant.
+Four keys are read by nothing jevents.py can see, and are named in
+_UNREAD_KEYS with the reason: Counter, CountersNumFixed and
+CountersNumGeneric, carried by the Intel import, and Experimental,
+which metric.py reads out of the JSON itself.
+
+It warns rather than fails, because a key nobody knows about in one
+vendor's tables should not stop the build of an architecture that does
+not use them.  JEVENTS_STRICT=1 turns the warning into an error, for a
+tree or a CI job that wants to gate on it.
+
+What it is not: a schema.  It knows nothing about types, required
+fields or value ranges, and it only sees the tables of the architecture
+being built, so a typo in an Intel table is still invisible in an arm64
+build.  Declaring the fields on both the reading and the writing side
+would fix both of those, and belongs in a follow-up.
+
+Patches 1 and 2 are the data fixes, so that the tree is right by the
+time patch 3 looks at it.  They are the patches from these two
+postings, unchanged.  Please take them from this series and drop the
+earlier postings if they are already queued:
+
+  1/3: https://lore.kernel.org/linux-perf-users/20261108184600.3810059-1-takano32@gmail.com/
+  2/3: https://lore.kernel.org/linux-perf-users/20261108183846.3804875-1-takano32@gmail.com/
+
+Testing:
+
+ - jevents.py run for arm64, nds32, powerpc, riscv, s390 and x86 over
+   these tables produces byte for byte the same .h and .c with and
+   without patch 3.
+ - With patches 1 and 2 reverted, patch 3 reports exactly the four
+   files they touch and nothing else; JEVENTS_STRICT=1 exits 1 there.
+ - 1/3 is the one change with output: the x86 table gains the
+   description for ls_inef_sw_pref.all in three entries.
+ - perf built on arm64 with 1 and 2 reverted and patch 3 applied: the
+   build succeeds and prints one warning block; with the whole series
+   it is silent.
+ - mypy 1.19.1 reports no issues on jevents.py.
+
+1/3 is a user-visible fix with Fixes tags and is a stable candidate;
+2/3 changes no output and 3/3 is tooling, so neither asks for stable.
+There are no Reviewed-by or Tested-by tags yet.  The two earlier
+postings drew one comment, James Clark's above, and two clean sashiko
+reviews.
+
+Tools: the two misspellings were found by Hermes Agent, an LLM
+assistant, while auditing the PMU tables on an Ampere Altra machine, and
+patch 3 and this letter were written with it from prompts asking for a
+check that reports the JSON keys jevents.py does not read.  The author
+reviewed every hunk and ran the checks above.

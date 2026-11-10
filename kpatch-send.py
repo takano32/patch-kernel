@@ -431,44 +431,26 @@ def preflight(job):
 
 
 def fill_cover(path, subject, patches):
-    """format-patch --cover-letter の 0000-*.patch に件名と本文を差し込む。"""
+    """format-patch --cover-letter の 0000-*.patch の穴を埋める。
+
+    件名と本文だけを差し替え、format-patch が入れた shortlog / diffstat /
+    base-commit / 署名はそのまま残す（消すと base-commit が飛ぶ）。
+    """
     path = os.path.expanduser(path)
     if not os.path.isfile(path):
         raise Fatal(f"cover の本文がありません: {path}")
-    body = open(path, encoding="utf-8").read().rstrip("\n").splitlines()
+    body = open(path, encoding="utf-8").read().rstrip("\n")
     cp = [p for p in patches if os.path.basename(p).startswith("0000-")]
     if not cp:
         raise Fatal("cover letter が生成されていません（--cover-letter が効いていない）")
     cp = cp[0]
-    lines = open(cp, encoding="utf-8").read().splitlines(keepends=True)
-    out, i = [], 0
-    while i < len(lines):
-        line = lines[i]
-        if line.startswith("Subject: "):
-            n = line.split("/", 1)[-1] if "/" in line else "]"
-            out.append(f"Subject: {line[len('Subject: '):].replace('*** SUBJECT HERE ***', subject)}"
-                       if "*** SUBJECT HERE ***" in line else line)
-            i += 1
-            # ヘッダ終わりの空行まで進む
-            while i < len(lines) and lines[i].strip() != "":
-                out.append(lines[i]); i += 1
-            if i < len(lines):
-                out.append(lines[i]); i += 1
-            # ここが本文。*** BLURB HERE *** と既存の署名を本文で置き換える
-            sep = None
-            j = i
-            while j < len(lines):
-                if lines[j].startswith("---"):
-                    sep = j
-                    break
-                j += 1
-            out.append("\n".join(body) + "\n\n")
-            if sep is not None:
-                out.extend(lines[sep:])
-            break
-        out.append(line)
-        i += 1
-    open(cp, "w", encoding="utf-8").write("".join(out))
+    text = open(cp, encoding="utf-8").read()
+    for hole in ("*** SUBJECT HERE ***", "*** BLURB HERE ***"):
+        if hole not in text:
+            raise Fatal(f"{os.path.basename(cp)} に {hole} がありません")
+    text = text.replace("*** SUBJECT HERE ***", subject, 1)
+    text = text.replace("*** BLURB HERE ***", body, 1)
+    open(cp, "w", encoding="utf-8").write(text)
 
 
 def run_series(job, s):
