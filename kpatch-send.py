@@ -104,6 +104,8 @@ class Job:
         self.base = args.base or cfg.get("base", "auto")
         self.send = args.send
         self.keep = args.keep
+        self.rebasing = False
+        self.orig_branch = None
         # 名前を指定せず --send / --pending のときは「未送信のもの」だけ扱う
         self.pending_only = bool(getattr(args, "pending", False)
                                  or (args.send and not args.series))
@@ -140,12 +142,17 @@ class Job:
         last = None
         for _ in range(2):
             # urllib はこの箱のミラー相手に読み取りで固まることがあるので curl を使う
-            r = subprocess.run(["curl", "-s", "--max-time", "30",
+            # -f を付けないと 502 の本文を「取得できた」と誤認し、
+            # 検索 0 件 = 重複なし として素通りする（実際に起きた）
+            r = subprocess.run(["curl", "-s", "-f", "--max-time", "30",
                                 "-A", "Mozilla/5.0", url],
                                capture_output=True, text=True)
-            if r.returncode == 0 and r.stdout:
-                return r.stdout
-            last = RuntimeError(f"curl rc={r.returncode}: {r.stderr.strip()}")
+            body = r.stdout or ""
+            # 正常な検索結果も <html> で始まるので、エラーページだけを弾く
+            bad = body.lstrip().lower().startswith("error code:")
+            if r.returncode == 0 and body and not bad:
+                return body
+            last = RuntimeError(f"curl rc={r.returncode}: {r.stderr.strip() or body[:60]!r}")
             time.sleep(1)
         raise last
 
@@ -171,6 +178,7 @@ class Job:
         return hashlib.sha256("\n".join(lines).encode()).hexdigest()
 
     def check_duplicate(self, patch_path, subject, author):
+        self.unchecked = 0
         local = self.diff_digest(open(patch_path, encoding="utf-8").read())
         words = re.sub(r"^(\[[^\]]*\]\s*)+", "", subject).strip()
         phrase = " ".join(words.split()[:6])
@@ -179,27 +187,62 @@ class Job:
         # 著者検索も足して候補を必ず網羅する
         words_clean = re.sub(r"[^0-9A-Za-z ]+", " ", phrase)
         ids = set()
+        ok_queries, bad_queries = 0, []
         for q in (" ".join(words_clean.split()[:5]), "f:takano32"):
-            html = self.fetch_retry(f"{self.mirror}/?q={urllib.parse.quote(q)}")
+            try:
+                html = self.fetch_retry(f"{self.mirror}/?q={urllib.parse.quote(q)}")
+            except Fatal as exc:
+                # ミラーの検索が片方だけ落ちることはある（502）。
+                # 「0 件」と混同すると重複を見逃すので、必ず別扱いにする
+                bad_queries.append(q)
+                say(f"         {q!r}: 検索できず（{exc}）")
+                continue
             found = set(re.findall(
                 r'href="(?:\.\./)?([0-9A-Za-z][^"/]*@[^"/]+)/"', html))
-            say(f"         {q!r}: {len(found)} 件")
+            ok_queries += 1
+            m = re.search(r'Results\s+(\d+)-(\d+)\s+of\s+~?([\d,]+)', html)
+            if m and m.group(2).replace(',', '') != m.group(3).replace(',', ''):
+                say(f"         {q!r}: {len(found)} 件"
+                    f"（ミラーは {m.group(1)}-{m.group(2)} / 全 {m.group(3)} 件、"
+                    "古い投稿は照合できません）")
+                self.unchecked += int(m.group(3).replace(',', '')) - len(found)
+            else:
+                say(f"         {q!r}: {len(found)} 件")
             ids |= found
-        ids = sorted(ids)
-        if len(ids) > 25:
-            say(f"       候補が {len(ids)} 件あるので新しい25件に絞ります")
-            ids = ids[-25:]
+        if not ok_queries:
+            raise Fatal("重複確認の検索が全滅しました（ミラー不調）。"
+                        "重複を見逃す恐れがあるので送信を止めます: "
+                        + ", ".join(repr(q) for q in bad_queries))
+        if bad_queries:
+            say(f"       注意: {len(bad_queries)} 件の検索が失敗しました"
+                f"（{', '.join(repr(q) for q in bad_queries)}）。"
+                " 残りの検索結果で照合します")
+        def _mid_date(msgid):
+            # 20261107051730.1880691-1-takano32@gmail.com 形式から日付を取る。
+            head = msgid.split('.', 1)[0]
+            return head if head.isdigit() and len(head) >= 8 else ''
+
+        ids = sorted(ids, key=lambda m: (_mid_date(m), m))
+        if len(ids) > 400:
+            dropped = ids[:-400]
+            say(f"       候補が {len(ids)} 件あるので新しい400件に絞ります"
+                f"（{len(dropped)} 件は照合しません）")
+            self.unchecked += len(dropped)
+            ids = ids[-400:]
         say(f"       ミラー上の候補: {len(ids)} 件")
 
         same_subject, same_diff = [], None
+        ok_raw, bad_raw = 0, []
         for i, msgid in enumerate(ids, 1):
             if i % 10 == 0 or i == len(ids):
                 say(f"       照合中 {i}/{len(ids)} ...")
             try:
                 raw = self.fetch(f"{self.mirror}/{msgid}/raw")
             except Exception as exc:
+                bad_raw.append(msgid)
                 say(f"         (skip) {msgid}: {exc}")
                 continue
+            ok_raw += 1
             r_subject = ""
             for line in raw.splitlines():
                 if line.startswith("Subject:"):
@@ -212,6 +255,18 @@ class Job:
             if local and self.diff_digest(raw) == local:
                 same_diff = msgid
         say("\r       " + " " * 30 + "\r", end="")
+        # 本文が 1 通も取れないと「照合した結果 0 件」と区別が付かない。
+        # 取れなかったことを重複なしと読み替えない
+        if ids and not ok_raw:
+            raise Fatal(f"候補 {len(ids)} 件の本文を 1 通も取得できませんでした"
+                        "（ミラー不調）。重複を確認できないので送信を止めます: "
+                        + str(bad_raw[:3]))
+        if self.unchecked:
+            say(f"       注意: 候補のうち {self.unchecked} 件は照合していません"
+                "（新しい 400 件だけを見ています。件名で探すなら全件照合を）")
+        if bad_raw:
+            say(f"       注意: {len(bad_raw)}/{len(ids)} 件の本文を取得できず、"
+                "照合から外れています（ミラー不調）")
         return same_subject, same_diff
 
 
@@ -324,6 +379,8 @@ def send_reply(job, name):
 CHECKPATCH_BENIGN = (
     "Unrecognized email address: 'LLM'",
     "Non-standard signature: Assisted-by:",
+    # 新規ファイルの追加そのものへの注意。MAINTAINERS の被覆は人が見る。
+    "added, moved or deleted file(s), does MAINTAINERS need updating?",
 )
 
 # checkpatch は「commit <sha> (\"title\")」を 1 行で書けと要求し、同時に
@@ -349,6 +406,30 @@ def load_config(path):
         return json.load(f)
 
 
+def preflight(job):
+    """送信前にリポジトリの状態を確かめる。
+
+    汚れた作業ツリーのまま走らせると、``git switch master`` が WIP を
+    master に持ち越し、失敗時の ``rebase --abort`` が他人の rebase を
+    巻き戻す（master を 2 回壊した原因）。ここで止める。
+    """
+    for d in ("rebase-merge", "rebase-apply"):
+        if os.path.isdir(os.path.join(job.repo, ".git", d)):
+            raise Fatal(f"リポジトリが rebase 中です（.git/{d}）。"
+                        "終わらせるか中止してから実行してください")
+    st = subprocess.run(["git", "status", "--porcelain"], cwd=job.repo,
+                        env=job.env, capture_output=True, text=True)
+    if st.returncode != 0:
+        raise Fatal(f"git status が失敗しました: {st.stderr.strip()}")
+    if st.stdout.strip():
+        raise Fatal("作業ツリーに未コミットの変更があります:\n"
+                    + st.stdout.strip()[:400]
+                    + "\n先に commit か stash をしてください（master を持ち越さないため）")
+    br = subprocess.run(["git", "rev-parse", "--abbrev-ref", "HEAD"],
+                        cwd=job.repo, env=job.env, capture_output=True, text=True)
+    job.orig_branch = br.stdout.strip() or "master"
+
+
 def run_series(job, s):
     name = s["name"]
     branch = s["branch"]
@@ -364,7 +445,35 @@ def run_series(job, s):
     job.git(["switch", "-q", "master"], check=False)
     job.git(["branch", "-D", out_branch], check=False)
     job.git(["switch", "-q", "-c", out_branch, branch])
+    job.rebasing = True
     job.git(["rebase", "--exec", "git commit --amend --no-edit -s", base])
+    job.rebasing = False
+    # rebase --exec が走らないのは (a) 範囲にコミットが無い、(b) empty で
+    # 落ちたとき。HEAD だけ見て amend すると、複数コミットの系列で 2 個目
+    # 以降が無署名のまま通るし、0 件のときは系列外のコミットを書き換える。
+    # 系列全体を点検して、足りなければ黙って進めない。
+    ident = subprocess.run(["git", "config", "user.email"], cwd=job.repo,
+                           env=job.env, capture_output=True, text=True).stdout.strip()
+    if not ident:
+        raise Fatal("git config user.email が空です（Signed-off-by を作れません）")
+    revs = subprocess.run(["git", "rev-list", "--reverse", f"{base}..HEAD"],
+                          cwd=job.repo, env=job.env, capture_output=True,
+                          text=True).stdout.split()
+    if not revs:
+        raise Fatal(f"{base[:12]}..HEAD にコミットがありません（系列ブランチと "
+                    "--base を確認してください）")
+    unsigned = []
+    for rev in revs:
+        body = subprocess.run(["git", "log", "-1", "--format=%B", rev],
+                              cwd=job.repo, env=job.env, capture_output=True,
+                              text=True).stdout
+        if not any(ln.startswith("Signed-off-by:") and f"<{ident}>" in ln
+                   for ln in body.splitlines()):
+            unsigned.append(rev[:12])
+    if unsigned:
+        raise Fatal("Signed-off-by が入っていないコミットがあります: "
+                    + ", ".join(unsigned)
+                    + "（rebase --exec が走らなかった。empty で落ちた可能性）")
     commit = subprocess.run(["git", "log", "-1", "--format=%h %s"],
                             cwd=job.repo, env=job.env, capture_output=True,
                             text=True).stdout.strip()
@@ -445,7 +554,10 @@ def run_series(job, s):
         say("       → 返信として送るので問題なし")
     else:
         say("       同じ件名の投稿なし")
-    ok("重複なし", t)
+    if job.unchecked:
+        ok(f"重複なし（未照合 {job.unchecked} 件あり）", t)
+    else:
+        ok("重複なし", t)
 
     t = head(f"{name}: {'送信' if job.send else 'dry-run（送らない）'}"
              + ("" if not job.send else "  ← SMTP で1〜2分かかることがあります"))
@@ -490,6 +602,18 @@ def main():
     ap.add_argument("--list-replies", action="store_true", help="用意した返信を表示")
     args = ap.parse_args()
 
+    # 系列と返信を1回の呼び出しで送れるようにする:
+    #   kpatch-send.py <系列>... reply <名前>... [--send]
+    # 「reply」より前が系列、後ろが返信。系列を先に送ってから返信を出す。
+    reply_names = []
+    if "reply" in args.series:
+        split = args.series.index("reply")
+        reply_names = args.series[split + 1:]
+        args.series = args.series[:split]
+        if not reply_names:
+            sys.exit("使い方: kpatch-send.py <系列> reply <名前> [--send]"
+                     "（--list-replies で一覧）")
+
     lock_file = open("/tmp/kpatch-send.lock", "w")
     try:
         fcntl.flock(lock_file, fcntl.LOCK_EX | fcntl.LOCK_NB)
@@ -504,7 +628,7 @@ def main():
             say(f"{s['name']:20s} {s['branch']:32s} "
                   f"reroll={s.get('reroll', '')} reply={s.get('in_reply_to', '')}")
         return
-    if args.series and args.series[0] != "reply":
+    if args.series:
         series = [s for s in series if s["name"] in args.series]
         if not series:
             sys.exit("該当する系列名がありません（--list-series で確認）")
@@ -529,22 +653,21 @@ def main():
         say(f"送るには: {sys.argv[0]} reply <名前> --send")
         return
 
-    # 返信モード: kpatch-send.py reply <名前> [--send]
-    if args.series and args.series[0] == "reply":
-        if len(args.series) < 2:
-            sys.exit("使い方: kpatch-send.py reply <名前> [--send]（--list-replies で一覧）")
-        name = args.series[1]
+    # 返信だけのとき: kpatch-send.py reply <名前> [<名前>...] [--send]
+    if reply_names and not args.series:
         action = "送信" if job.send else "dry-run（送らない）"
-        say(f"=== 返信 {name} の{action} / {time.strftime('%Y-%m-%d %H:%M UTC', time.gmtime())} ===")
+        say(f"=== {len(reply_names)}通の返信 {action} / "
+            f"{time.strftime('%Y-%m-%d %H:%M UTC', time.gmtime())} ===")
         say(f"    ログ: {LOG_PATH}")
-        try:
-            send_reply(job, name)
-        except Fatal as exc:
-            say(f"\n       NG  {exc}")
-            sys.exit(1)
-        except (smtplib.SMTPException, OSError) as exc:
-            say(f"\n       NG  SMTP: {exc}")
-            sys.exit(1)
+        for name in reply_names:
+            try:
+                send_reply(job, name)
+            except Fatal as exc:
+                say(f"\n       NG  {exc}")
+                sys.exit(1)
+            except (smtplib.SMTPException, OSError) as exc:
+                say(f"\n       NG  SMTP: {exc}")
+                sys.exit(1)
         say(f"\n=== 完了（合計 {clock():.1f}s）===")
         say(f"ログ: {LOG_PATH}")
         return
@@ -557,11 +680,14 @@ def main():
     say(f"    ログ: {LOG_PATH}")
 
     try:
+        preflight(job)
         for s in series:
             run_series(job, s)
     except Fatal as exc:
-        subprocess.run(["git", "rebase", "--abort"], cwd=job.repo, env=job.env,
-                       capture_output=True)
+        if getattr(job, "rebasing", False):
+            subprocess.run(["git", "rebase", "--abort"], cwd=job.repo,
+                           env=job.env, capture_output=True)
+            job.rebasing = False
         subprocess.run(["git", "worktree", "remove", "--force",
                         os.path.join(os.path.dirname(job.repo), "wt-verify")],
                        cwd=job.repo, env=job.env, capture_output=True)
@@ -570,12 +696,15 @@ def main():
         say(f"ログ: {LOG_PATH}")
         sys.exit(1)
     finally:
-        subprocess.run(["git", "switch", "-q", "master"], cwd=job.repo,
+        # master に戻すと WIP を抱え込むので、実行前のブランチに戻す
+        back = getattr(job, "orig_branch", None) or "master"
+        subprocess.run(["git", "switch", "-q", back], cwd=job.repo,
                        env=job.env, capture_output=True)
 
-    # 系列名を指定しない --send では、用意した返信も続けて送る
-    if not args.series and cfg.get("replies"):
-        for name in cfg["replies"]:
+    # 系列名を指定しない --send では、用意した返信も続けて送る。
+    # reply <名前> を付けた呼び出しでは、その返信を（系列の後に）送る。
+    tail = reply_names or (cfg.get("replies") if not args.series else [])
+    for name in tail:
             sent_mark = os.path.join(REPLY_DIR, f"{name}.sent")
             if os.path.exists(sent_mark) and not args.force:
                 say(f"\n--- 返信 {name}: 送信済み（{open(sent_mark, encoding='utf-8').read().strip()}）なのでスキップ")
@@ -595,7 +724,10 @@ def main():
         say(f"送信済みのためスキップ: {', '.join(SKIPPED)}")
     say(f"ログ: {LOG_PATH}")
     if not job.send:
-        say(f"問題なければ: {sys.argv[0]} --send " + " ".join(args.series))
+        plan = " ".join(args.series)
+        if reply_names:
+            plan += " reply " + " ".join(reply_names)
+        say(f"問題なければ: {sys.argv[0]} --send " + plan)
 
 
 if __name__ == "__main__":
